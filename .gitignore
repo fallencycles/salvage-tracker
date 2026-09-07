@@ -19,3 +19,6 @@ node_modules/
 
 # TS build cache
 /tsconfig.tsbuildinfo
+
+# incoming catalog batches (staged for import, not tracked)
+/incoming/

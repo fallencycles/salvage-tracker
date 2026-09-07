@@ -103,13 +103,19 @@ importer walks the JSON, not the zip.
 
 ## What happens on import
 
+Runs `scripts/import_catalog_batch.mjs` (`BATCH_DIR=incoming node scripts/import_catalog_batch.mjs`):
+
 1. Validate the manifest and component-string matching **before** writing to the DB.
-2. Load `catalog_part` + `catalog_part_fitment` additively (upsert by key, not
-   truncate — unlike the original one-shot `scripts/import_catalog.mjs`).
-3. Rebuild `mv_part_fitment_ranges` for the affected parts (collapse contiguous
-   `model_year`s per part + `model_code` into ranges).
+2. Load `catalog_part` + `catalog_part_fitment` additively — refuses to run if any
+   of the batch's `source_catalog` values already exist; new ids are the SQLite
+   ids offset past the current `MAX(catalog_part.id)`. (The original one-shot
+   `scripts/import_catalog.mjs` truncates and is not used for batches.)
+3. Recompute `mv_part_fitment_ranges` (gaps-and-islands) for every part number the
+   batch touches, across the whole fitment table — so a part shared with older
+   catalogs gets one correct set of ranges.
 4. Upload the PNGs to the existing public `catalog-diagrams` Storage bucket and
-   upsert `catalog_component_image` (unique on `catalog, component`).
+   upsert `catalog_component_image` (unique on `catalog, component`); PNGs already
+   in the bucket are skipped.
 5. Run coverage sanity checks (row counts match the index; no orphans in either
    direction) and spot-check parts on the live site.
 6. No redeploy. The only code change that might be needed is widening the
@@ -133,4 +139,5 @@ catalog_component_image.catalog    ----+  (+ identical .component)
 ```
 
 The catalog data currently loaded: Touring (2000) and Softail (1991-1992 through
-2020, plus 2022) — 27 catalogs, ~9,956 distinct parts, 2,416 component diagrams.
+2020, plus 2022, 2025, 2026) — 29 catalogs, ~10,598 distinct parts, 2,640
+component diagrams.
