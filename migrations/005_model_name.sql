@@ -42,6 +42,13 @@ insert into model_name (model_code, name, model_family) values
   ('FLTR',     'Road Glide',                      'Touring'),
   ('FLTR/I',   'Road Glide (EFI)',                'Touring'),
   ('FLTRI',    'Road Glide (EFI)',                'Touring'),
+  ('FLTRXS',   'Road Glide Special',              'Touring'),
+  ('FLTRU',    'Road Glide Ultra',                'Touring'),
+  ('FLTRK',    'Road Glide Limited',              'Touring'),
+  ('FLHXS',    'Street Glide Special',            'Touring'),
+  ('FLHRXS',   'Road King Special',               'Touring'),
+  ('FLHTKL',   'Electra Glide Ultra Limited Low', 'Touring'),
+  ('FLHTCUL',  'Electra Glide Ultra Classic Low', 'Touring'),
   -- Softail
   ('FLDE',     'Deluxe',                          'Softail'),
   ('FLFB',     'Fat Boy',                         'Softail'),
