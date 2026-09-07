@@ -747,65 +747,38 @@ function PartModal({
       </div>
 
       {zoom && (
-        <div
-          onClick={(e) => {
-            e.stopPropagation();
-            setZoom(null);
-          }}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.85)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-            padding: 16,
-            cursor: "zoom-out",
-            zIndex: 200,
-          }}
-        >
-          {zoom.callouts.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                flexWrap: "wrap",
-                justifyContent: "center",
-                color: "#fff",
-                fontSize: 13,
-              }}
-            >
-              <span>This part is</span>
-              {zoom.callouts.map((c) => (
-                <CalloutBadge key={c} n={c} size={22} />
-              ))}
-              <span>on the drawing</span>
-            </div>
-          )}
+        <div className="cat-zoom" onClick={(e) => e.stopPropagation()}>
+          <div className="cat-zoom-head">
+            <button onClick={() => setZoom(null)} style={zoomBtn}>
+              ‹ Back to part
+            </button>
+            {zoom.callouts.length > 0 && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                This part is
+                {zoom.callouts.map((c) => (
+                  <CalloutBadge key={c} n={c} size={20} />
+                ))}
+                on the drawing
+              </span>
+            )}
+            <button onClick={() => setZoom(null)} style={{ ...zoomBtn, marginLeft: "auto" }}>
+              Close ✕
+            </button>
+          </div>
 
           <div className="cat-zoom-body">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
+              className="cat-zoom-img"
               src={zoom.url}
               alt={zoom.component ?? ""}
-              onClick={(e) => {
-                e.stopPropagation();
-                setZoom(null);
-              }}
-              style={{
-                maxWidth: "min(100%, 900px)",
-                maxHeight: "100%",
-                objectFit: "contain",
-                background: "#fff",
-                borderRadius: 6,
-                cursor: "zoom-out",
+              onClick={() => setZoom(null)}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
               }}
             />
 
-            <div className="cat-zoom-panel" onClick={(e) => e.stopPropagation()} style={{ cursor: "default" }}>
+            <div className="cat-zoom-panel" onClick={(e) => e.stopPropagation()}>
               <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
                 <div style={sectionLabel}>Parts on this drawing</div>
                 <input
@@ -827,7 +800,7 @@ function PartModal({
                   }}
                 />
               </div>
-              <div style={{ overflowY: "auto", padding: "4px 0" }}>
+              <div className="cat-zoom-list">
                 {legendLoading && (
                   <div
                     style={{
@@ -927,17 +900,35 @@ function PartModal({
                     });
                   })()}
               </div>
+              <div
+                style={{
+                  padding: "8px 12px",
+                  borderTop: "1px solid var(--border)",
+                  fontSize: 11,
+                  color: "var(--ink-dim)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                Pick a row to jump to that part
+              </div>
             </div>
-          </div>
-
-          <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 12, textAlign: "center" }}>
-            Tap the image or press Esc to close · pick a row to jump to that part
           </div>
         </div>
       )}
     </div>
   );
 }
+
+const zoomBtn: React.CSSProperties = {
+  background: "rgba(255,255,255,0.1)",
+  border: "1px solid rgba(255,255,255,0.2)",
+  color: "#fff",
+  borderRadius: 6,
+  padding: "6px 12px",
+  fontSize: 12.5,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
 
 const selectStyle: React.CSSProperties = {
   background: "var(--panel)",
