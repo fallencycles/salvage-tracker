@@ -1,0 +1,21 @@
+node_modules/
+.next/
+.env.local
+.env*.local
+.DS_Store
+.vercel
+
+# Superseded originals (catalog now lives in Supabase)
+/fallen_cycles_catalog.db
+/parts_catalog_search.html
+/salvage-tracker.zip
+
+# Large local data — reference catalog DB, import sources, component-diagram PNGs.
+# Loaded into Supabase, not tracked in git.
+/data/fallen_cycles_catalog.db
+/data/component_images/
+/data/diagram-zips/
+/data/all_component_images.json
+
+# TS build cache
+/tsconfig.tsbuildinfo

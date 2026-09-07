@@ -1,0 +1,76 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+
+:root {
+  --bg: #211f1d;
+  --panel: #2a2824;
+  --panel-raised: #322f2a;
+  --border: #423e37;
+  --ink: #ede9e3;
+  --ink-dim: #a9a29a;
+  --tag-yellow: #e3b23c;
+  --tag-blue: #5b7c99;
+  --tag-rust: #b54a3c;
+  --tag-green: #6a8f5b;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+
+a {
+  color: inherit;
+}
+
+.stock-tag {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--panel-raised);
+  white-space: nowrap;
+}
+
+.status-pill {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+
+.board-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.board-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink-dim);
+  font-size: 13px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.board-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.board-table tr:hover td {
+  background: var(--panel-raised);
+}
