@@ -133,10 +133,19 @@ async function uploadOne(file) {
   if (!existsSync(abs)) return "missing_file";
   const head = await fetch(`${SUPABASE_URL}/storage/v1/object/info/public/${BUCKET}/${encodeURIComponent(file)}`, { headers: storageHeaders });
   if (head.ok) return "exists";
-  const up = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(file)}`, {
-    method: "POST", headers: { ...storageHeaders, "Content-Type": "image/png", "x-upsert": "true" }, body: readFileSync(abs),
-  });
-  return up.ok ? "uploaded" : `error:${up.status}`;
+  const body = readFileSync(abs);
+  // Storage occasionally 5xx's transiently (Cloudflare 520) — retry a few times.
+  let last = 0;
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const up = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(file)}`, {
+      method: "POST", headers: { ...storageHeaders, "Content-Type": "image/png", "x-upsert": "true" }, body,
+    });
+    if (up.ok) return "uploaded";
+    last = up.status;
+    if (up.status < 500 && up.status !== 429) break;
+    await new Promise((r) => setTimeout(r, 400 * attempt));
+  }
+  return `error:${last}`;
 }
 async function pool(items, worker, n) {
   const out = []; let i = 0;
