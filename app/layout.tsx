@@ -33,42 +33,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en">
       <body>
         {passed ? (
-          <div style={{ display: "flex", minHeight: "100vh" }}>
-            <nav
-              style={{
-                width: 210,
-                flexShrink: 0,
-                borderRight: "1px solid var(--border)",
-                padding: "20px 0",
-              }}
-            >
-              <div
-                style={{
-                  padding: "0 20px 20px",
-                  fontFamily: "var(--font-mono)",
-                  fontWeight: 600,
-                  letterSpacing: "0.06em",
-                }}
-              >
-                FALLEN CYCLES
-              </div>
+          <div className="app-shell">
+            <nav className="app-nav">
+              <div className="app-nav-brand">FALLEN CYCLES</div>
               {NAV.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  style={{
-                    display: "block",
-                    padding: "9px 20px",
-                    fontSize: 14,
-                    color: "var(--ink-dim)",
-                    textDecoration: "none",
-                  }}
-                >
+                <Link key={item.href} href={item.href}>
                   {item.label}
                 </Link>
               ))}
             </nav>
-            <main style={{ flex: 1, padding: "28px 36px", maxWidth: 1100 }}>{children}</main>
+            <main className="app-main">{children}</main>
           </div>
         ) : (
           children

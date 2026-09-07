@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const q = sp.get("q");
   const model = sp.get("model");
+  const family = sp.get("family");
   const yearRaw = sp.get("year");
   const year = yearRaw ? parseInt(yearRaw, 10) : null;
 
@@ -16,6 +17,7 @@ export async function GET(req: NextRequest) {
     const data = await searchCatalog({
       q,
       model,
+      family,
       year: year && !Number.isNaN(year) ? year : null,
     });
     return NextResponse.json(data);

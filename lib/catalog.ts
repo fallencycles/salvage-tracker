@@ -9,9 +9,14 @@ import { getDb } from "@/lib/db";
 export type FitmentRange = {
   model_code: string;
   model_family: string | null;
+  model_name: string | null;
   year_start: number;
   year_end: number;
 };
+
+// Canonical model-family buttons in the UI. Anything not in this list is "Other".
+export const MODEL_FAMILIES = ["Touring", "Softail", "Dyna", "Sportster", "V-Rod", "Trike"] as const;
+const OTHER = "Other";
 
 export type CatalogOccurrence = {
   component: string | null;
@@ -33,6 +38,7 @@ export type CatalogResult = {
   description: string | null;
   component: string | null;
   model_count: number;
+  families: string[];
   occurrences: CatalogOccurrence[];
   fitment: FitmentRange[];
 };
@@ -72,12 +78,25 @@ export type CatalogSearchParams = {
   q?: string | null;
   model?: string | null;
   year?: number | null;
+  family?: string | null;
 };
+
+// Turn a family filter into a SQL fragment + params against a table aliased `t`
+// with a `model_family` column. Returns null when there's no family filter.
+function familyClause(family: string | null, startIdx: number): { sql: string; args: string[] } | null {
+  if (!family) return null;
+  if (family === OTHER) {
+    const ph = MODEL_FAMILIES.map((_, i) => `$${startIdx + i}`).join(",");
+    return { sql: `(t.model_family is null or t.model_family not in (${ph}))`, args: [...MODEL_FAMILIES] };
+  }
+  return { sql: `t.model_family = $${startIdx}`, args: [family] };
+}
 
 export async function searchCatalog({
   q,
   model,
   year,
+  family,
 }: CatalogSearchParams): Promise<CatalogSearchResponse> {
   const db = getDb();
   const text = (q ?? "").trim();
@@ -85,6 +104,7 @@ export async function searchCatalog({
   const tsQuery = toTsQuery(text);
   const modelArg = model || null;
   const yearArg = year ?? null;
+  const familyArg = family || null;
 
   // score: lower is better. Exact/prefix part-number hits beat full-text
   // relevance, which is ordered by ts_rank_cd (higher = better, so negated).
@@ -125,20 +145,22 @@ export async function searchCatalog({
   let candidates: string[];
 
   if (!text) {
-    // No query text — browse by model and/or year straight from the ranges.
-    if (!modelArg && !yearArg) {
+    // No query text — browse by family/model/year straight from the ranges.
+    if (!modelArg && !yearArg && !familyArg) {
       return { results: [], total: 0, truncated: false };
     }
+    const fam = familyClause(familyArg, 3);
     const { rows } = await db.query<{ n: string }>(
       `select n from (
-         select distinct part_no_normalized as n
-           from mv_part_fitment_ranges
-          where ($1::text is null or model_code = $1)
-            and ($2::int is null or (year_start <= $2 and year_end >= $2))
+         select distinct t.part_no_normalized as n
+           from mv_part_fitment_ranges t
+          where ($1::text is null or t.model_code = $1)
+            and ($2::int is null or (t.year_start <= $2 and t.year_end >= $2))
+            ${fam ? `and ${fam.sql}` : ""}
        ) s
        order by length(n), n
        limit 4000`,
-      [modelArg, yearArg]
+      [modelArg, yearArg, ...(fam?.args ?? [])]
     );
     candidates = rows.map((r) => r.n);
   } else {
@@ -147,16 +169,18 @@ export async function searchCatalog({
 
   if (candidates.length === 0) return { results: [], total: 0, truncated: false };
 
-  // Apply model / year filters for the text-search path (the browse path above
-  // already filtered).
-  if (text && (modelArg || yearArg)) {
+  // Apply family / model / year filters for the text-search path (the browse
+  // path above already filtered).
+  if (text && (modelArg || yearArg || familyArg)) {
+    const fam = familyClause(familyArg, 4);
     const { rows } = await db.query<{ n: string }>(
-      `select distinct part_no_normalized as n
-         from mv_part_fitment_ranges
-        where part_no_normalized = any($1::text[])
-          and ($2::text is null or model_code = $2)
-          and ($3::int is null or (year_start <= $3 and year_end >= $3))`,
-      [candidates, modelArg, yearArg]
+      `select distinct t.part_no_normalized as n
+         from mv_part_fitment_ranges t
+        where t.part_no_normalized = any($1::text[])
+          and ($2::text is null or t.model_code = $2)
+          and ($3::int is null or (t.year_start <= $3 and t.year_end >= $3))
+          ${fam ? `and ${fam.sql}` : ""}`,
+      [candidates, modelArg, yearArg, ...(fam?.args ?? [])]
     );
     const keep = new Set(rows.map((r) => r.n));
     candidates = candidates.filter((n) => keep.has(n));
@@ -204,13 +228,16 @@ export async function searchCatalog({
       n: string;
       model_code: string;
       model_family: string | null;
+      model_name: string | null;
       year_start: number;
       year_end: number;
     }>(
-      `select part_no_normalized as n, model_code, model_family, year_start, year_end
-         from mv_part_fitment_ranges
-        where part_no_normalized = any($1::text[])
-        order by model_code, year_start`,
+      `select r.part_no_normalized as n, r.model_code, r.model_family, mn.name as model_name,
+              r.year_start, r.year_end
+         from mv_part_fitment_ranges r
+         left join model_name mn on mn.model_code = r.model_code
+        where r.part_no_normalized = any($1::text[])
+        order by r.model_code, r.year_start`,
       [page]
     ),
   ]);
@@ -223,6 +250,7 @@ export async function searchCatalog({
       description: null,
       component: null,
       model_count: 0,
+      families: [],
       occurrences: [],
       fitment: [],
     });
@@ -258,12 +286,14 @@ export async function searchCatalog({
   }
 
   const models = new Map<string, Set<string>>();
+  const famsByNorm = new Map<string, Set<string>>();
   for (const row of fit.rows) {
     const entry = byNorm.get(row.n);
     if (!entry) continue;
     entry.fitment.push({
       model_code: row.model_code,
       model_family: row.model_family,
+      model_name: row.model_name ?? null,
       year_start: row.year_start,
       year_end: row.year_end,
     });
@@ -273,10 +303,26 @@ export async function searchCatalog({
       models.set(row.n, set);
     }
     set.add(row.model_code);
+    if (row.model_family) {
+      let fs = famsByNorm.get(row.n);
+      if (!fs) {
+        fs = new Set();
+        famsByNorm.set(row.n, fs);
+      }
+      fs.add(row.model_family);
+    }
   }
   for (const [n, set] of models) {
     const entry = byNorm.get(n);
     if (entry) entry.model_count = set.size;
+  }
+  const famOrder = (f: string) => {
+    const i = (MODEL_FAMILIES as readonly string[]).indexOf(f);
+    return i === -1 ? MODEL_FAMILIES.length : i;
+  };
+  for (const [n, fs] of famsByNorm) {
+    const entry = byNorm.get(n);
+    if (entry) entry.families = [...fs].sort((a, b) => famOrder(a) - famOrder(b) || a.localeCompare(b));
   }
 
   for (const entry of byNorm.values()) {
@@ -379,4 +425,28 @@ export async function catalogModelCodes(): Promise<string[]> {
     modelCodesCache = rows.map((r) => r.model_code);
   }
   return modelCodesCache;
+}
+
+// Which of the canonical families (plus "Other") actually have parts, so the UI
+// can render every button but disable the empty ones.
+let familyCountsCache: Record<string, number> | null = null;
+
+export async function catalogFamilyCounts(): Promise<Record<string, number>> {
+  if (!familyCountsCache) {
+    const db = getDb();
+    const { rows } = await db.query<{ model_family: string | null; codes: string }>(
+      `select model_family, count(distinct model_code) as codes
+         from mv_part_fitment_ranges group by model_family`
+    );
+    const known = new Set<string>(MODEL_FAMILIES);
+    const out: Record<string, number> = {};
+    for (const f of MODEL_FAMILIES) out[f] = 0;
+    out[OTHER] = 0;
+    for (const r of rows) {
+      const key = r.model_family && known.has(r.model_family) ? r.model_family : OTHER;
+      out[key] += Number(r.codes);
+    }
+    familyCountsCache = out;
+  }
+  return familyCountsCache;
 }

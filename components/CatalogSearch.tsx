@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type FitmentRange = {
   model_code: string;
   model_family: string | null;
+  model_name: string | null;
   year_start: number;
   year_end: number;
 };
@@ -27,6 +28,7 @@ type CatalogResult = {
   description: string | null;
   component: string | null;
   model_count: number;
+  families: string[];
   occurrences: CatalogOccurrence[];
   fitment: FitmentRange[];
 };
@@ -37,25 +39,35 @@ type SearchResponse = {
   truncated: boolean;
 };
 
-function groupFitment(fitment: FitmentRange[]): { code: string; family: string | null; years: string }[] {
-  const byCode = new Map<string, { family: string | null; spans: [number, number][] }>();
+const FAMILY_BUTTONS = ["Touring", "Softail", "Dyna", "Sportster", "V-Rod", "Trike", "Other"];
+
+function groupFitment(
+  fitment: FitmentRange[]
+): { code: string; family: string | null; name: string | null; years: string }[] {
+  const byCode = new Map<
+    string,
+    { family: string | null; name: string | null; spans: [number, number][] }
+  >();
   for (const f of fitment) {
-    const e = byCode.get(f.model_code) ?? { family: f.model_family, spans: [] };
+    const e = byCode.get(f.model_code) ?? { family: f.model_family, name: f.model_name, spans: [] };
+    if (!e.name && f.model_name) e.name = f.model_name;
     e.spans.push([f.year_start, f.year_end]);
     byCode.set(f.model_code, e);
   }
-  return [...byCode.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([code, e]) => ({
-    code,
-    family: e.family,
-    years: e.spans
-      .sort((a, b) => a[0] - b[0])
-      .map(([ys, ye]) => (ys === ye ? `${ys}` : `${ys}–${ye}`))
-      .join(", "),
-  }));
+  return [...byCode.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([code, e]) => ({
+      code,
+      family: e.family,
+      name: e.name,
+      years: e.spans
+        .sort((a, b) => a[0] - b[0])
+        .map(([ys, ye]) => (ys === ye ? `${ys}` : `${ys}–${ye}`))
+        .join(", "),
+    }));
 }
 
-// "softail_2006_parts.json" -> "softail_2006" (the catalog slug the diagram
-// image + parts-list lookups are keyed by).
+// "softail_2006_parts.json" -> "softail_2006"
 function catalogSlug(source: string | null): string {
   return (source ?? "").replace(/_parts\.json$/, "");
 }
@@ -70,11 +82,9 @@ type DiagramRef = {
   component: string | null;
   source: string | null;
   page: number | null;
-  // Callout numbers for THIS part on THIS diagram (catalog_part.index_no).
   callouts: string[];
 };
 
-// One row of a diagram's full parts list (GET /api/catalog/diagram).
 type DiagramPart = {
   index_no: string | null;
   part_no: string;
@@ -90,13 +100,6 @@ const byCalloutNo = (a: string, b: string) => {
   return a.localeCompare(b, undefined, { numeric: true });
 };
 
-// Distinct exploded-view diagrams referenced by a part's occurrences, each with
-// the callout number(s) that mark this part on the drawing.
-//
-// NOTE / possible future work: we only have the callout *number* (index_no), not
-// where it sits on the diagram image, so we surface the number and let the user
-// find it. A drawn highlight (ring/box on the image) would need per-part pixel
-// coordinates per diagram — manual annotation or OCR of the callout labels.
 function diagramsFor(r: CatalogResult): DiagramRef[] {
   const byUrl = new Map<string, DiagramRef>();
   for (const o of r.occurrences) {
@@ -119,49 +122,121 @@ function diagramsFor(r: CatalogResult): DiagramRef[] {
   return out;
 }
 
+// A small labelled pill — used for the family filter buttons and the family
+// tags on result rows.
+function Pill({
+  children,
+  active,
+  disabled,
+  onClick,
+  title,
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+  title?: string;
+}) {
+  const clickable = !!onClick && !disabled;
+  return (
+    <button
+      type="button"
+      onClick={clickable ? onClick : undefined}
+      disabled={disabled}
+      title={title}
+      style={{
+        fontFamily: "var(--font-sans)",
+        fontSize: 12.5,
+        lineHeight: 1,
+        padding: "6px 11px",
+        borderRadius: 999,
+        border: `1px solid ${active ? "var(--tag-yellow)" : "var(--border)"}`,
+        background: active ? "var(--tag-yellow)" : "var(--panel)",
+        color: active ? "#211f1d" : disabled ? "var(--ink-dim)" : "var(--ink)",
+        fontWeight: active ? 600 : 500,
+        opacity: disabled ? 0.4 : 1,
+        cursor: clickable ? "pointer" : disabled ? "not-allowed" : "default",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Static family tag (not a button) for result rows.
+function FamilyTag({ label }: { label: string }) {
+  return (
+    <span
+      style={{
+        fontFamily: "var(--font-sans)",
+        fontSize: 11,
+        lineHeight: 1,
+        padding: "4px 8px",
+        borderRadius: 999,
+        border: "1px solid var(--border)",
+        background: "var(--panel-raised)",
+        color: "var(--ink-dim)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 const YEAR_MIN = 1991;
 const YEAR_MAX = 2026;
 
-export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
+export function CatalogSearch({
+  modelCodes,
+  familyCounts,
+}: {
+  modelCodes: string[];
+  familyCounts?: Record<string, number>;
+}) {
   const [q, setQ] = useState("");
   const [model, setModel] = useState("");
   const [year, setYear] = useState("");
+  const [family, setFamily] = useState("");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  // Modal navigation stack: [] closed, last entry is the visible part. Pivoting
-  // from a diagram's parts list pushes; "Back" pops.
   const [stack, setStack] = useState<CatalogResult[]>([]);
   const selected = stack[stack.length - 1] ?? null;
 
   const reqId = useRef(0);
 
-  const run = useCallback(async (qv: string, modelv: string, yearv: string) => {
-    if (!qv.trim() && !modelv && !yearv) {
-      setData(null);
-      setLoading(false);
-      return;
-    }
-    const id = ++reqId.current;
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (qv.trim()) params.set("q", qv.trim());
-    if (modelv) params.set("model", modelv);
-    if (yearv) params.set("year", yearv);
-    try {
-      const res = await fetch(`/api/catalog/search?${params.toString()}`);
-      const json = (await res.json()) as SearchResponse;
-      if (id === reqId.current) setData(json);
-    } catch {
-      if (id === reqId.current) setData({ results: [], total: 0, truncated: false });
-    } finally {
-      if (id === reqId.current) setLoading(false);
-    }
-  }, []);
+  const run = useCallback(
+    async (qv: string, modelv: string, yearv: string, familyv: string) => {
+      if (!qv.trim() && !modelv && !yearv && !familyv) {
+        setData(null);
+        setLoading(false);
+        return;
+      }
+      const id = ++reqId.current;
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (qv.trim()) params.set("q", qv.trim());
+      if (modelv) params.set("model", modelv);
+      if (yearv) params.set("year", yearv);
+      if (familyv) params.set("family", familyv);
+      try {
+        const res = await fetch(`/api/catalog/search?${params.toString()}`);
+        const json = (await res.json()) as SearchResponse;
+        if (id === reqId.current) setData(json);
+      } catch {
+        if (id === reqId.current) setData({ results: [], total: 0, truncated: false });
+      } finally {
+        if (id === reqId.current) setLoading(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
-    const t = setTimeout(() => run(q, model, year), 180);
+    const t = setTimeout(() => run(q, model, year, family), 180);
     return () => clearTimeout(t);
-  }, [q, model, year, run]);
+  }, [q, model, year, family, run]);
 
   useEffect(() => {
     if (!selected) return;
@@ -170,24 +245,19 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [selected]);
 
-  // Open a part by number (from a diagram's parts list). Reuses the search
-  // endpoint — exact part-number matches sort first — and pushes onto the stack.
   const openPartByNo = useCallback(async (partNo: string) => {
     try {
       const res = await fetch(`/api/catalog/search?q=${encodeURIComponent(partNo)}`);
       const json = (await res.json()) as SearchResponse;
-      const hit =
-        json.results?.find((r) => r.part_no === partNo) ??
-        json.results?.[0] ??
-        null;
+      const hit = json.results?.find((r) => r.part_no === partNo) ?? json.results?.[0] ?? null;
       if (hit) setStack((s) => [...s, hit]);
     } catch {
-      /* ignore — the modal just stays put */
+      /* ignore */
     }
   }, []);
 
   const results = data?.results ?? [];
-  const idle = !q.trim() && !model && !year;
+  const idle = !q.trim() && !model && !year && !family;
 
   return (
     <div>
@@ -201,7 +271,15 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
           padding: "0 14px",
         }}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.5, flexShrink: 0 }}>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          style={{ opacity: 0.5, flexShrink: 0 }}
+        >
           <circle cx="11" cy="11" r="8" />
           <path d="m21 21-4.3-4.3" />
         </svg>
@@ -210,9 +288,9 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
           onChange={(e) => setQ(e.target.value)}
           placeholder="Part number, description, or component…"
           autoComplete="off"
-          autoFocus
           style={{
             flex: 1,
+            minWidth: 0,
             background: "none",
             border: "none",
             outline: "none",
@@ -224,9 +302,29 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
         />
       </div>
 
+      {/* family filter buttons */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+        {FAMILY_BUTTONS.map((f) => {
+          const count = familyCounts?.[f] ?? 0;
+          const disabled = count === 0;
+          const active = family === f;
+          return (
+            <Pill
+              key={f}
+              active={active}
+              disabled={disabled && !active}
+              title={disabled ? `No ${f} parts yet` : `${count} model codes`}
+              onClick={() => setFamily(active ? "" : f)}
+            >
+              {f}
+            </Pill>
+          );
+        })}
+      </div>
+
       <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
         <select value={model} onChange={(e) => setModel(e.target.value)} style={selectStyle}>
-          <option value="">All models</option>
+          <option value="">All model codes</option>
           {modelCodes.map((c) => (
             <option key={c} value={c}>
               {c}
@@ -236,6 +334,7 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
         <span style={{ fontSize: 12, color: "var(--ink-dim)" }}>fits year</span>
         <input
           type="number"
+          inputMode="numeric"
           value={year}
           onChange={(e) => setYear(e.target.value)}
           placeholder="e.g. 2005"
@@ -243,12 +342,13 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
           max={YEAR_MAX}
           style={{ ...selectStyle, width: 92, fontFamily: "var(--font-mono)" }}
         />
-        {(model || year || q) && (
+        {(model || year || q || family) && (
           <button
             onClick={() => {
               setQ("");
               setModel("");
               setYear("");
+              setFamily("");
             }}
             style={{ ...selectStyle, cursor: "pointer", color: "var(--ink-dim)" }}
           >
@@ -276,46 +376,18 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
       </div>
 
       {idle && !data && (
-        <div style={emptyStyle}>Start typing a part number, description, or component name.</div>
+        <div style={emptyStyle}>Pick a model above, or start typing a part number, description, or component.</div>
       )}
-      {data && results.length === 0 && !loading && <div style={emptyStyle}>No parts match that search.</div>}
+      {data && results.length === 0 && !loading && (
+        <div style={emptyStyle}>No parts match that search.</div>
+      )}
 
       <div>
         {results.map((r) => {
           const hasDiagram = r.occurrences.some((o) => o.diagram_url);
           return (
-            <div
-              key={r.part_no_normalized}
-              onClick={() => setStack([r])}
-              style={{
-                display: "flex",
-                gap: 18,
-                padding: "12px",
-                borderRadius: 7,
-                cursor: "pointer",
-                border: "1px solid transparent",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--panel)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.borderColor = "transparent";
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontWeight: 600,
-                  fontSize: 14,
-                  color: "var(--tag-yellow)",
-                  width: 120,
-                  flexShrink: 0,
-                }}
-              >
-                {r.part_no}
-              </div>
+            <div key={r.part_no_normalized} className="cat-row" onClick={() => setStack([r])}>
+              <div className="cat-row-no">{r.part_no}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={ellipsis}>{r.description || "—"}</div>
                 <div style={{ ...ellipsis, fontSize: 12, color: "var(--ink-dim)", marginTop: 2 }}>
@@ -323,21 +395,25 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
                   {r.occurrences.length > 1 ? ` +${r.occurrences.length - 1} more` : ""}
                 </div>
               </div>
-              <div
-                style={{
-                  flexShrink: 0,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11.5,
-                  color: "var(--ink-dim)",
-                  alignSelf: "center",
-                  whiteSpace: "nowrap",
-                  display: "flex",
-                  gap: 10,
-                  alignItems: "center",
-                }}
-              >
-                {hasDiagram && <span title="Has exploded-view diagram">▦</span>}
-                {r.model_count} model{r.model_count === 1 ? "" : "s"}
+              <div className="cat-row-meta">
+                {hasDiagram && (
+                  <span title="Has exploded-view diagram" style={{ color: "var(--ink-dim)" }}>
+                    ▦
+                  </span>
+                )}
+                {r.families.map((f) => (
+                  <FamilyTag key={f} label={f} />
+                ))}
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11.5,
+                    color: "var(--ink-dim)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {r.model_count} model{r.model_count === 1 ? "" : "s"}
+                </span>
               </div>
             </div>
           );
@@ -358,7 +434,6 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
   );
 }
 
-// Small circular callout marker, matching the numbers printed on the diagrams.
 function CalloutBadge({ n, size = 20 }: { n: string; size?: number }) {
   return (
     <span
@@ -402,8 +477,6 @@ function PartModal({
   const [zoom, setZoom] = useState<DiagramRef | null>(null);
   const anyCallouts = diagrams.some((d) => d.callouts.length > 0);
 
-  // Full parts list for the open diagram (its other callout numbers), fetched
-  // once per (catalog, component) and cached for the life of the modal.
   const legendCache = useRef<Map<string, DiagramPart[]>>(new Map());
   const [legend, setLegend] = useState<DiagramPart[] | null>(null);
   const [legendLoading, setLegendLoading] = useState(false);
@@ -447,42 +520,20 @@ function PartModal({
   }, [zoom]);
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.6)",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        padding: "40px 20px",
-        overflowY: "auto",
-        zIndex: 100,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: 10,
-          width: "min(860px, 100%)",
-          maxWidth: "100%",
-        }}
-      >
+    <div className="cat-modal-scrim" onClick={onClose}>
+      <div className="cat-modal" onClick={(e) => e.stopPropagation()}>
         <div
           style={{
             display: "flex",
             alignItems: "baseline",
             justifyContent: "space-between",
-            gap: 16,
-            padding: "18px 20px",
+            gap: 12,
+            padding: "16px 18px",
             borderBottom: "1px solid var(--border)",
             position: "sticky",
             top: 0,
             background: "var(--bg)",
-            borderRadius: "10px 10px 0 0",
+            zIndex: 1,
           }}
         >
           <div style={{ minWidth: 0 }}>
@@ -502,10 +553,26 @@ function PartModal({
                 ‹ Back
               </button>
             )}
-            <div style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 17, color: "var(--tag-yellow)" }}>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontWeight: 700,
+                fontSize: 17,
+                color: "var(--tag-yellow)",
+              }}
+            >
               {result.part_no}
             </div>
-            <div style={{ fontSize: 13.5, color: "var(--ink)", marginTop: 3 }}>{result.description || "—"}</div>
+            <div style={{ fontSize: 13.5, color: "var(--ink)", marginTop: 3 }}>
+              {result.description || "—"}
+            </div>
+            {result.families.length > 0 && (
+              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                {result.families.map((f) => (
+                  <FamilyTag key={f} label={f} />
+                ))}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -524,7 +591,7 @@ function PartModal({
           </button>
         </div>
 
-        <div style={{ padding: "18px 20px 24px" }}>
+        <div style={{ padding: "18px" }}>
           {diagrams.length > 0 && (
             <div style={{ marginBottom: 22 }}>
               <div style={sectionLabel}>
@@ -532,12 +599,12 @@ function PartModal({
               </div>
               <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 10 }}>
                 {anyCallouts
-                  ? "Circled number marks this part on the drawing. Click a thumbnail to enlarge."
-                  : "Click a thumbnail to enlarge."}
+                  ? "Circled number marks this part on the drawing. Tap a thumbnail to enlarge."
+                  : "Tap a thumbnail to enlarge."}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                 {diagrams.map((d) => (
-                  <figure key={d.url} style={{ margin: 0, width: 156 }}>
+                  <figure key={d.url} style={{ margin: 0, width: 156, maxWidth: "100%" }}>
                     <div style={{ position: "relative" }}>
                       <img
                         src={d.url}
@@ -602,17 +669,49 @@ function PartModal({
             </div>
           )}
 
-          <div style={sectionLabel}>Fits {fits.length > 0 ? `(${fits.length} model${fits.length === 1 ? "" : "s"})` : ""}</div>
+          <div style={sectionLabel}>
+            Fits {fits.length > 0 ? `(${fits.length} model${fits.length === 1 ? "" : "s"})` : ""}
+          </div>
           {fits.length > 0 ? (
-            <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 7, columnGap: 14, marginBottom: 22 }}>
+            <div className="cat-fits">
               {fits.map((f) => (
                 <div key={f.code} style={{ display: "contents" }}>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--ink)", fontWeight: 600 }}>
-                    {f.code}
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 12.5,
+                        color: "var(--ink)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {f.code}
+                    </span>
+                    {f.name && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          lineHeight: 1.1,
+                          padding: "3px 7px",
+                          borderRadius: 999,
+                          border: "1px solid var(--border)",
+                          background: "var(--panel-raised)",
+                          color: "var(--ink-dim)",
+                        }}
+                      >
+                        {f.name}
+                      </span>
+                    )}
                   </div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--tag-green)" }}>
+                  <div
+                    className="cat-fits-years"
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12.5,
+                      color: "var(--tag-green)",
+                    }}
+                  >
                     {f.years}
-                    {f.family ? <span style={{ color: "var(--ink-dim)" }}> · {f.family}</span> : null}
                   </div>
                 </div>
               ))}
@@ -662,7 +761,7 @@ function PartModal({
             alignItems: "center",
             justifyContent: "center",
             gap: 12,
-            padding: 24,
+            padding: 16,
             cursor: "zoom-out",
             zIndex: 200,
           }}
@@ -687,19 +786,7 @@ function PartModal({
             </div>
           )}
 
-          <div
-            style={{
-              flex: 1,
-              minHeight: 0,
-              width: "100%",
-              display: "flex",
-              gap: 14,
-              justifyContent: "center",
-              alignItems: "flex-start",
-              flexWrap: "wrap",
-              overflow: "hidden",
-            }}
-          >
+          <div className="cat-zoom-body">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={zoom.url}
@@ -718,21 +805,7 @@ function PartModal({
               }}
             />
 
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                width: 320,
-                maxWidth: "100%",
-                maxHeight: "100%",
-                cursor: "default",
-                display: "flex",
-                flexDirection: "column",
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                overflow: "hidden",
-              }}
-            >
+            <div className="cat-zoom-panel" onClick={(e) => e.stopPropagation()} style={{ cursor: "default" }}>
               <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
                 <div style={sectionLabel}>Parts on this drawing</div>
                 <input
@@ -756,7 +829,14 @@ function PartModal({
               </div>
               <div style={{ overflowY: "auto", padding: "4px 0" }}>
                 {legendLoading && (
-                  <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--ink-dim)", fontFamily: "var(--font-mono)" }}>
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      fontSize: 12,
+                      color: "var(--ink-dim)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
                     loading…
                   </div>
                 )}
@@ -778,7 +858,12 @@ function PartModal({
                     if (rows.length === 0) {
                       return (
                         <div
-                          style={{ padding: "10px 12px", fontSize: 12, color: "var(--ink-dim)", fontFamily: "var(--font-mono)" }}
+                          style={{
+                            padding: "10px 12px",
+                            fontSize: 12,
+                            color: "var(--ink-dim)",
+                            fontFamily: "var(--font-mono)",
+                          }}
                         >
                           {legend.length === 0 ? "No parts list for this drawing." : "No match."}
                         </div>
@@ -797,20 +882,16 @@ function PartModal({
                             gap: 8,
                             width: "100%",
                             textAlign: "left",
-                            padding: "6px 12px",
+                            padding: "8px 12px",
                             background: mine ? "var(--panel)" : "transparent",
                             border: "none",
                             borderLeft: `2px solid ${mine ? "var(--tag-yellow)" : "transparent"}`,
                             cursor: mine ? "default" : "pointer",
                           }}
-                          onMouseEnter={(e) => {
-                            if (!mine) e.currentTarget.style.background = "var(--panel)";
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!mine) e.currentTarget.style.background = "transparent";
-                          }}
                         >
-                          <span style={{ flexShrink: 0, width: 24, display: "flex", justifyContent: "center" }}>
+                          <span
+                            style={{ flexShrink: 0, width: 24, display: "flex", justifyContent: "center" }}
+                          >
                             {p.index_no ? (
                               <CalloutBadge n={p.index_no} size={18} />
                             ) : (
@@ -849,8 +930,8 @@ function PartModal({
             </div>
           </div>
 
-          <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
-            Click the image or press Esc to close · pick a row to jump to that part
+          <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 12, textAlign: "center" }}>
+            Tap the image or press Esc to close · pick a row to jump to that part
           </div>
         </div>
       )}
@@ -863,7 +944,7 @@ const selectStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   color: "var(--ink)",
   fontSize: 13,
-  padding: "7px 10px",
+  padding: "8px 10px",
   borderRadius: 6,
   fontFamily: "var(--font-sans)",
 };

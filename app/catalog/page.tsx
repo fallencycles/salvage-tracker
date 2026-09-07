@@ -1,5 +1,5 @@
 import { CatalogSearch } from "@/components/CatalogSearch";
-import { catalogModelCodes, catalogStats } from "@/lib/catalog";
+import { catalogFamilyCounts, catalogModelCodes, catalogStats } from "@/lib/catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,22 +9,33 @@ export const metadata = {
 };
 
 export default async function CatalogPage() {
-  const [stats, modelCodes] = await Promise.all([catalogStats(), catalogModelCodes()]);
+  const [stats, modelCodes, familyCounts] = await Promise.all([
+    catalogStats(),
+    catalogModelCodes(),
+    catalogFamilyCounts(),
+  ]);
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: "4px 16px",
+        }}
+      >
         <h1 style={{ fontSize: 22, margin: "0 0 4px" }}>Parts catalog</h1>
         <div style={{ fontSize: 12.5, color: "var(--ink-dim)", fontFamily: "var(--font-mono)" }}>
           {stats.parts.toLocaleString()} parts · {stats.fitmentRanges.toLocaleString()} fitment ranges
         </div>
       </div>
-      <p style={{ color: "var(--ink-dim)", marginTop: 0, marginBottom: 24 }}>
+      <p style={{ color: "var(--ink-dim)", marginTop: 0, marginBottom: 20, fontSize: 14 }}>
         Reference lookup — Harley part numbers, the components they belong to, and the
-        models and years each one fits. Full-text search across descriptions, components,
-        and part numbers.
+        models and years each one fits.
       </p>
-      <CatalogSearch modelCodes={modelCodes} />
+      <CatalogSearch modelCodes={modelCodes} familyCounts={familyCounts} />
     </div>
   );
 }
