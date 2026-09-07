@@ -181,6 +181,13 @@ async function main() {
     1500
   );
 
+  // drop parse-error model_year rows (page numbers / part fragments misread as
+  // years) before recomputing ranges
+  const junk = await db.query(
+    "delete from catalog_part_fitment where model_year is not null and (model_year < 1985 or model_year > 2030) returning 1"
+  );
+  if (junk.rowCount) console.log(`dropped ${junk.rowCount} fitment row(s) with an implausible model_year`);
+
   // recompute mv_part_fitment_ranges for every part number the batch touches
   const touched = [...new Set(parts.map((p) => p.part_no_normalized))];
   await db.query("delete from mv_part_fitment_ranges where part_no_normalized = any($1::text[])", [touched]);
