@@ -16,6 +16,7 @@ type CatalogOccurrence = {
   source_catalog: string | null;
   model_family: string | null;
   international: boolean;
+  index_no: string | null;
   diagram_url: string | null;
   diagram_page: number | null;
 };
@@ -53,20 +54,68 @@ function groupFitment(fitment: FitmentRange[]): { code: string; family: string |
   }));
 }
 
-function catalogLabel(source: string | null): string {
-  if (!source) return "";
-  return source.replace(/_parts\.json$/, "").replace(/^softail_/, "Softail ").replace(/^touring$/, "Touring");
+// "softail_2006_parts.json" -> "softail_2006" (the catalog slug the diagram
+// image + parts-list lookups are keyed by).
+function catalogSlug(source: string | null): string {
+  return (source ?? "").replace(/_parts\.json$/, "");
 }
 
-// Distinct exploded-view diagrams referenced by a part's occurrences.
-function diagramsFor(r: CatalogResult) {
-  const seen = new Set<string>();
-  const out: { url: string; component: string | null; source: string | null; page: number | null }[] = [];
+function catalogLabel(source: string | null): string {
+  if (!source) return "";
+  return catalogSlug(source).replace(/^softail_/, "Softail ").replace(/^touring$/, "Touring");
+}
+
+type DiagramRef = {
+  url: string;
+  component: string | null;
+  source: string | null;
+  page: number | null;
+  // Callout numbers for THIS part on THIS diagram (catalog_part.index_no).
+  callouts: string[];
+};
+
+// One row of a diagram's full parts list (GET /api/catalog/diagram).
+type DiagramPart = {
+  index_no: string | null;
+  part_no: string;
+  part_no_normalized: string;
+  description: string | null;
+  page: number | null;
+};
+
+const byCalloutNo = (a: string, b: string) => {
+  const na = parseInt(a, 10);
+  const nb = parseInt(b, 10);
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+  return a.localeCompare(b, undefined, { numeric: true });
+};
+
+// Distinct exploded-view diagrams referenced by a part's occurrences, each with
+// the callout number(s) that mark this part on the drawing.
+//
+// NOTE / possible future work: we only have the callout *number* (index_no), not
+// where it sits on the diagram image, so we surface the number and let the user
+// find it. A drawn highlight (ring/box on the image) would need per-part pixel
+// coordinates per diagram — manual annotation or OCR of the callout labels.
+function diagramsFor(r: CatalogResult): DiagramRef[] {
+  const byUrl = new Map<string, DiagramRef>();
   for (const o of r.occurrences) {
-    if (!o.diagram_url || seen.has(o.diagram_url)) continue;
-    seen.add(o.diagram_url);
-    out.push({ url: o.diagram_url, component: o.component, source: o.source_catalog, page: o.diagram_page ?? o.page });
+    if (!o.diagram_url) continue;
+    let d = byUrl.get(o.diagram_url);
+    if (!d) {
+      d = {
+        url: o.diagram_url,
+        component: o.component,
+        source: o.source_catalog,
+        page: o.diagram_page ?? o.page,
+        callouts: [],
+      };
+      byUrl.set(o.diagram_url, d);
+    }
+    if (o.index_no && !d.callouts.includes(o.index_no)) d.callouts.push(o.index_no);
   }
+  const out = [...byUrl.values()];
+  for (const d of out) d.callouts.sort(byCalloutNo);
   return out;
 }
 
@@ -79,7 +128,10 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
   const [year, setYear] = useState("");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState<CatalogResult | null>(null);
+  // Modal navigation stack: [] closed, last entry is the visible part. Pivoting
+  // from a diagram's parts list pushes; "Back" pops.
+  const [stack, setStack] = useState<CatalogResult[]>([]);
+  const selected = stack[stack.length - 1] ?? null;
 
   const reqId = useRef(0);
 
@@ -113,10 +165,26 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
 
   useEffect(() => {
     if (!selected) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setSelected(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setStack([]);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selected]);
+
+  // Open a part by number (from a diagram's parts list). Reuses the search
+  // endpoint — exact part-number matches sort first — and pushes onto the stack.
+  const openPartByNo = useCallback(async (partNo: string) => {
+    try {
+      const res = await fetch(`/api/catalog/search?q=${encodeURIComponent(partNo)}`);
+      const json = (await res.json()) as SearchResponse;
+      const hit =
+        json.results?.find((r) => r.part_no === partNo) ??
+        json.results?.[0] ??
+        null;
+      if (hit) setStack((s) => [...s, hit]);
+    } catch {
+      /* ignore — the modal just stays put */
+    }
+  }, []);
 
   const results = data?.results ?? [];
   const idle = !q.trim() && !model && !year;
@@ -218,7 +286,7 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
           return (
             <div
               key={r.part_no_normalized}
-              onClick={() => setSelected(r)}
+              onClick={() => setStack([r])}
               style={{
                 display: "flex",
                 gap: 18,
@@ -276,15 +344,107 @@ export function CatalogSearch({ modelCodes }: { modelCodes: string[] }) {
         })}
       </div>
 
-      {selected && <PartModal result={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <PartModal
+          key={selected.part_no_normalized}
+          result={selected}
+          canBack={stack.length > 1}
+          onBack={() => setStack((s) => s.slice(0, -1))}
+          onOpenPart={openPartByNo}
+          onClose={() => setStack([])}
+        />
+      )}
     </div>
   );
 }
 
-function PartModal({ result, onClose }: { result: CatalogResult; onClose: () => void }) {
+// Small circular callout marker, matching the numbers printed on the diagrams.
+function CalloutBadge({ n, size = 20 }: { n: string; size?: number }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: size,
+        height: size,
+        padding: "0 5px",
+        borderRadius: 999,
+        background: "var(--tag-yellow)",
+        color: "#000",
+        fontFamily: "var(--font-mono)",
+        fontSize: Math.round(size * 0.62),
+        fontWeight: 700,
+        lineHeight: 1,
+        boxShadow: "0 0 0 2px rgba(0,0,0,0.35)",
+      }}
+    >
+      {n}
+    </span>
+  );
+}
+
+function PartModal({
+  result,
+  onClose,
+  onBack,
+  canBack,
+  onOpenPart,
+}: {
+  result: CatalogResult;
+  onClose: () => void;
+  onBack: () => void;
+  canBack: boolean;
+  onOpenPart: (partNo: string) => void;
+}) {
   const fits = groupFitment(result.fitment);
   const diagrams = diagramsFor(result);
-  const [zoom, setZoom] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<DiagramRef | null>(null);
+  const anyCallouts = diagrams.some((d) => d.callouts.length > 0);
+
+  // Full parts list for the open diagram (its other callout numbers), fetched
+  // once per (catalog, component) and cached for the life of the modal.
+  const legendCache = useRef<Map<string, DiagramPart[]>>(new Map());
+  const [legend, setLegend] = useState<DiagramPart[] | null>(null);
+  const [legendLoading, setLegendLoading] = useState(false);
+  const [legendFilter, setLegendFilter] = useState("");
+
+  useEffect(() => {
+    if (!zoom) {
+      setLegend(null);
+      setLegendLoading(false);
+      setLegendFilter("");
+      return;
+    }
+    const slug = catalogSlug(zoom.source);
+    const key = `${slug}|${zoom.component ?? ""}`;
+    const cached = legendCache.current.get(key);
+    if (cached) {
+      setLegend(cached);
+      return;
+    }
+    let cancelled = false;
+    setLegend(null);
+    setLegendLoading(true);
+    const params = new URLSearchParams({ catalog: slug, component: zoom.component ?? "" });
+    fetch(`/api/catalog/diagram?${params.toString()}`)
+      .then((r) => r.json())
+      .then((j: { parts?: DiagramPart[] }) => {
+        if (cancelled) return;
+        const parts = j.parts ?? [];
+        legendCache.current.set(key, parts);
+        setLegend(parts);
+      })
+      .catch(() => {
+        if (!cancelled) setLegend([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLegendLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [zoom]);
 
   return (
     <div
@@ -326,6 +486,22 @@ function PartModal({ result, onClose }: { result: CatalogResult; onClose: () => 
           }}
         >
           <div style={{ minWidth: 0 }}>
+            {canBack && (
+              <button
+                onClick={onBack}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--ink-dim)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  padding: 0,
+                  marginBottom: 4,
+                }}
+              >
+                ‹ Back
+              </button>
+            )}
             <div style={{ fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: 17, color: "var(--tag-yellow)" }}>
               {result.part_no}
             </div>
@@ -354,31 +530,70 @@ function PartModal({ result, onClose }: { result: CatalogResult; onClose: () => 
               <div style={sectionLabel}>
                 {diagrams.length === 1 ? "Parts-page diagram" : `Parts-page diagrams (${diagrams.length})`}
               </div>
-              <div style={{ display: "grid", gap: 16 }}>
+              <div style={{ fontSize: 12, color: "var(--ink-dim)", marginBottom: 10 }}>
+                {anyCallouts
+                  ? "Circled number marks this part on the drawing. Click a thumbnail to enlarge."
+                  : "Click a thumbnail to enlarge."}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                 {diagrams.map((d) => (
-                  <figure key={d.url} style={{ margin: 0 }}>
-                    <img
-                      src={d.url}
-                      alt={d.component ?? "parts diagram"}
-                      loading="lazy"
-                      onClick={() => setZoom(d.url)}
-                      onError={(e) => {
-                        const fig = (e.currentTarget.closest("figure") as HTMLElement) || null;
-                        if (fig) fig.style.display = "none";
-                      }}
-                      style={{
-                        width: "100%",
-                        border: "1px solid var(--border)",
-                        borderRadius: 8,
-                        background: "#fff",
-                        cursor: "zoom-in",
-                        display: "block",
-                      }}
-                    />
+                  <figure key={d.url} style={{ margin: 0, width: 156 }}>
+                    <div style={{ position: "relative" }}>
+                      <img
+                        src={d.url}
+                        alt={d.component ?? "parts diagram"}
+                        loading="lazy"
+                        onClick={() => setZoom(d)}
+                        onError={(e) => {
+                          const fig = (e.currentTarget.closest("figure") as HTMLElement) || null;
+                          if (fig) fig.style.display = "none";
+                        }}
+                        style={{
+                          width: "100%",
+                          height: 118,
+                          objectFit: "contain",
+                          border: "1px solid var(--border)",
+                          borderRadius: 8,
+                          background: "#fff",
+                          cursor: "zoom-in",
+                          display: "block",
+                        }}
+                      />
+                      {d.callouts.length > 0 && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 4,
+                            left: 4,
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 3,
+                            maxWidth: "calc(100% - 8px)",
+                          }}
+                        >
+                          {d.callouts.slice(0, 4).map((c) => (
+                            <CalloutBadge key={c} n={c} size={18} />
+                          ))}
+                          {d.callouts.length > 4 && (
+                            <span style={{ fontSize: 10, color: "var(--ink-dim)", alignSelf: "center" }}>
+                              +{d.callouts.length - 4}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <figcaption
-                      style={{ fontSize: 11.5, color: "var(--ink-dim)", marginTop: 6, fontFamily: "var(--font-mono)" }}
+                      style={{
+                        fontSize: 11,
+                        color: "var(--ink-dim)",
+                        marginTop: 5,
+                        fontFamily: "var(--font-mono)",
+                        lineHeight: 1.35,
+                      }}
                     >
-                      {d.component || "—"} · {catalogLabel(d.source)}
+                      {d.component || "—"}
+                      <br />
+                      {catalogLabel(d.source)}
                       {d.page != null ? ` · p.${d.page}` : ""}
                     </figcaption>
                   </figure>
@@ -412,6 +627,11 @@ function PartModal({ result, onClose }: { result: CatalogResult; onClose: () => 
           <div style={{ display: "grid", gap: 7 }}>
             {result.occurrences.map((o, i) => (
               <div key={i} style={{ fontSize: 13, lineHeight: 1.45 }}>
+                {o.index_no ? (
+                  <span style={{ marginRight: 7 }}>
+                    <CalloutBadge n={o.index_no} size={17} />
+                  </span>
+                ) : null}
                 <span style={{ color: "var(--ink)" }}>{o.description || "—"}</span>
                 <span style={{ color: "var(--ink-dim)" }}>
                   {" · "}
@@ -438,15 +658,200 @@ function PartModal({ result, onClose }: { result: CatalogResult; onClose: () => 
             inset: 0,
             background: "rgba(0,0,0,0.85)",
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
+            gap: 12,
             padding: 24,
             cursor: "zoom-out",
             zIndex: 200,
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={zoom} alt="" style={{ maxWidth: "100%", maxHeight: "100%", background: "#fff", borderRadius: 6 }} />
+          {zoom.callouts.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+                justifyContent: "center",
+                color: "#fff",
+                fontSize: 13,
+              }}
+            >
+              <span>This part is</span>
+              {zoom.callouts.map((c) => (
+                <CalloutBadge key={c} n={c} size={22} />
+              ))}
+              <span>on the drawing</span>
+            </div>
+          )}
+
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              width: "100%",
+              display: "flex",
+              gap: 14,
+              justifyContent: "center",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+              overflow: "hidden",
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={zoom.url}
+              alt={zoom.component ?? ""}
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoom(null);
+              }}
+              style={{
+                maxWidth: "min(100%, 900px)",
+                maxHeight: "100%",
+                objectFit: "contain",
+                background: "#fff",
+                borderRadius: 6,
+                cursor: "zoom-out",
+              }}
+            />
+
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: 320,
+                maxWidth: "100%",
+                maxHeight: "100%",
+                cursor: "default",
+                display: "flex",
+                flexDirection: "column",
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
+                <div style={sectionLabel}>Parts on this drawing</div>
+                <input
+                  value={legendFilter}
+                  onChange={(e) => setLegendFilter(e.target.value)}
+                  placeholder="Filter by number or name…"
+                  autoComplete="off"
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    background: "var(--panel)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    color: "var(--ink)",
+                    fontSize: 12.5,
+                    padding: "6px 8px",
+                    outline: "none",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                />
+              </div>
+              <div style={{ overflowY: "auto", padding: "4px 0" }}>
+                {legendLoading && (
+                  <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--ink-dim)", fontFamily: "var(--font-mono)" }}>
+                    loading…
+                  </div>
+                )}
+                {legend &&
+                  !legendLoading &&
+                  (() => {
+                    const f = legendFilter.trim().toLowerCase();
+                    const rows = f
+                      ? legend.filter((p) => {
+                          const idx = (p.index_no ?? "").toLowerCase();
+                          return (
+                            idx === f ||
+                            idx.startsWith(f) ||
+                            p.part_no.toLowerCase().includes(f) ||
+                            (p.description ?? "").toLowerCase().includes(f)
+                          );
+                        })
+                      : legend;
+                    if (rows.length === 0) {
+                      return (
+                        <div
+                          style={{ padding: "10px 12px", fontSize: 12, color: "var(--ink-dim)", fontFamily: "var(--font-mono)" }}
+                        >
+                          {legend.length === 0 ? "No parts list for this drawing." : "No match."}
+                        </div>
+                      );
+                    }
+                    return rows.map((p) => {
+                      const mine = p.part_no_normalized === result.part_no_normalized;
+                      return (
+                        <button
+                          key={`${p.index_no ?? ""}|${p.part_no_normalized}`}
+                          onClick={mine ? undefined : () => onOpenPart(p.part_no)}
+                          disabled={mine}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "6px 12px",
+                            background: mine ? "var(--panel)" : "transparent",
+                            border: "none",
+                            borderLeft: `2px solid ${mine ? "var(--tag-yellow)" : "transparent"}`,
+                            cursor: mine ? "default" : "pointer",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!mine) e.currentTarget.style.background = "var(--panel)";
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!mine) e.currentTarget.style.background = "transparent";
+                          }}
+                        >
+                          <span style={{ flexShrink: 0, width: 24, display: "flex", justifyContent: "center" }}>
+                            {p.index_no ? (
+                              <CalloutBadge n={p.index_no} size={18} />
+                            ) : (
+                              <span style={{ color: "var(--ink-dim)", fontSize: 11 }}>—</span>
+                            )}
+                          </span>
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              width: 80,
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 12,
+                              color: "var(--tag-yellow)",
+                            }}
+                          >
+                            {p.part_no}
+                          </span>
+                          <span
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              fontSize: 12,
+                              color: "var(--ink-dim)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {p.description || "—"}
+                          </span>
+                        </button>
+                      );
+                    });
+                  })()}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 12 }}>
+            Click the image or press Esc to close · pick a row to jump to that part
+          </div>
         </div>
       )}
     </div>

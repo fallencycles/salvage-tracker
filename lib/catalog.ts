@@ -20,6 +20,9 @@ export type CatalogOccurrence = {
   source_catalog: string | null;
   model_family: string | null;
   international: boolean;
+  // Callout / reference number for this part on the component's exploded-view
+  // diagram (catalog_part.index_no) — what to look for on the image.
+  index_no: string | null;
   diagram_url: string | null;
   diagram_page: number | null;
 };
@@ -38,6 +41,16 @@ export type CatalogSearchResponse = {
   results: CatalogResult[];
   total: number;
   truncated: boolean;
+};
+
+// One row of a diagram's parts list — every callout on a single exploded view
+// (all catalog_part rows sharing a (catalog, component) pair).
+export type DiagramPart = {
+  index_no: string | null;
+  part_no: string;
+  part_no_normalized: string;
+  description: string | null;
+  page: number | null;
 };
 
 const RESULT_LIMIT = 300;
@@ -173,11 +186,12 @@ export async function searchCatalog({
       source_catalog: string | null;
       model_family: string | null;
       international: boolean;
+      index_no: string | null;
       diagram_url: string | null;
       diagram_page: number | null;
     }>(
       `select cp.part_no_normalized as n, cp.part_no, cp.component, cp.description, cp.page,
-              cp.source_catalog, cp.model_family, cp.international,
+              cp.source_catalog, cp.model_family, cp.international, cp.index_no,
               ci.image_url as diagram_url, ci.page as diagram_page
          from catalog_part cp
          left join catalog_component_image ci
@@ -234,6 +248,7 @@ export async function searchCatalog({
         source_catalog: row.source_catalog,
         model_family: row.model_family,
         international: row.international === true,
+        index_no: row.index_no ?? null,
         diagram_url: row.diagram_url ?? null,
         diagram_page: row.diagram_page ?? null,
       });
@@ -277,6 +292,62 @@ export async function searchCatalog({
     total: filteredTotal,
     truncated,
   };
+}
+
+// Every part on one exploded-view diagram, so a viewer can read off any callout
+// number (not just the one they searched). A diagram is one image per
+// (catalog, component); the catalog slug is source_catalog minus "_parts.json".
+export async function diagramParts(catalog: string, component: string): Promise<DiagramPart[]> {
+  const db = getDb();
+  const { rows } = await db.query<{
+    index_no: string | null;
+    part_no: string;
+    part_no_normalized: string;
+    description: string | null;
+    page: number | null;
+  }>(
+    `select index_no, part_no, part_no_normalized, description, page
+       from catalog_part
+      where regexp_replace(source_catalog, '_parts\\.json$', '') = $1
+        and component = $2`,
+    [catalog, component]
+  );
+
+  // Dedup by (callout, part) — a part can be listed on several sub-pages of the
+  // same component; two genuinely different parts can share a callout number
+  // (e.g. domestic / California variants), and both are kept.
+  const seen = new Set<string>();
+  const parts: DiagramPart[] = [];
+  for (const r of rows) {
+    const idx = (r.index_no ?? "").trim();
+    const key = `${idx}|${r.part_no_normalized}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push({
+      index_no: idx || null,
+      part_no: r.part_no,
+      part_no_normalized: r.part_no_normalized,
+      description: r.description,
+      page: r.page,
+    });
+  }
+
+  // Numeric callouts ascending, then any non-numeric callouts, then unnumbered.
+  parts.sort((a, b) => {
+    const na = a.index_no ? parseInt(a.index_no, 10) : NaN;
+    const nb = b.index_no ? parseInt(b.index_no, 10) : NaN;
+    const aNum = !Number.isNaN(na);
+    const bNum = !Number.isNaN(nb);
+    if (aNum && bNum && na !== nb) return na - nb;
+    if (aNum !== bNum) return aNum ? -1 : 1;
+    if (!a.index_no !== !b.index_no) return a.index_no ? -1 : 1;
+    return (
+      (a.index_no ?? "").localeCompare(b.index_no ?? "", undefined, { numeric: true }) ||
+      a.part_no.localeCompare(b.part_no)
+    );
+  });
+
+  return parts;
 }
 
 let statsCache: { parts: number; fitmentRanges: number } | null = null;
