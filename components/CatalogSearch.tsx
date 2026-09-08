@@ -1,23 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CatalogTimeline } from "@/components/CatalogTimeline";
-
-// Quick searches for the big/major parts people trace across the years.
-const MAJOR_PARTS = [
-  "derby cover",
-  "primary cover",
-  "rocker cover",
-  "cam cover",
-  "air cleaner",
-  "headlamp",
-  "fuel tank",
-  "seat",
-  "exhaust",
-  "handlebar",
-  "front fender",
-  "oil tank",
-];
 
 type FitmentRange = {
   model_code: string;
@@ -219,7 +202,6 @@ export function CatalogSearch({
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [stack, setStack] = useState<CatalogResult[]>([]);
-  const [view, setView] = useState<"list" | "timeline">("list");
   const selected = stack[stack.length - 1] ?? null;
 
   const reqId = useRef(0);
@@ -340,36 +322,6 @@ export function CatalogSearch({
         })}
       </div>
 
-      {/* major-part quick searches */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-        <span style={{ fontSize: 11, color: "var(--ink-dim)", alignSelf: "center", marginRight: 2 }}>
-          major parts:
-        </span>
-        {MAJOR_PARTS.map((p) => (
-          <button
-            key={p}
-            type="button"
-            onClick={() => {
-              setQ(p);
-              setView("timeline");
-            }}
-            style={{
-              fontSize: 11.5,
-              lineHeight: 1,
-              padding: "5px 9px",
-              borderRadius: 999,
-              border: "1px solid var(--border)",
-              background: q === p ? "var(--panel-raised)" : "transparent",
-              color: "var(--ink-dim)",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {p}
-          </button>
-        ))}
-      </div>
-
       <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
         <select value={model} onChange={(e) => setModel(e.target.value)} style={selectStyle}>
           <option value="">All model codes</option>
@@ -407,61 +359,30 @@ export function CatalogSearch({
 
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
+          fontSize: 12.5,
+          color: "var(--ink-dim)",
+          fontFamily: "var(--font-mono)",
           margin: "18px 0 12px",
           minHeight: 16,
         }}
       >
-        <div style={{ fontSize: 12.5, color: "var(--ink-dim)", fontFamily: "var(--font-mono)" }}>
-          {loading
-            ? "searching…"
-            : data
-            ? `${data.total.toLocaleString()} result${data.total === 1 ? "" : "s"}${
-                data.truncated ? ` · showing first ${results.length}` : ""
-              }`
-            : ""}
-        </div>
-        {data && results.length > 0 && (
-          <div style={{ display: "flex", gap: 0, border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
-            {(["list", "timeline"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                style={{
-                  fontSize: 12,
-                  padding: "5px 12px",
-                  border: "none",
-                  background: view === v ? "var(--tag-yellow)" : "var(--panel)",
-                  color: view === v ? "#211f1d" : "var(--ink-dim)",
-                  fontWeight: view === v ? 600 : 400,
-                  cursor: "pointer",
-                }}
-              >
-                {v === "list" ? "List" : "Timeline"}
-              </button>
-            ))}
-          </div>
-        )}
+        {loading
+          ? "searching…"
+          : data
+          ? `${data.total.toLocaleString()} result${data.total === 1 ? "" : "s"}${
+              data.truncated ? ` · showing first ${results.length}` : ""
+            }`
+          : ""}
       </div>
 
       {idle && !data && (
-        <div style={emptyStyle}>
-          Pick a model or a major part above, or start typing a part number, description, or component.
-        </div>
+        <div style={emptyStyle}>Pick a model above, or start typing a part number, description, or component.</div>
       )}
       {data && results.length === 0 && !loading && (
         <div style={emptyStyle}>No parts match that search.</div>
       )}
 
-      {view === "timeline" && results.length > 0 && (
-        <CatalogTimeline results={results} onOpen={(r) => setStack([r as CatalogResult])} />
-      )}
-
-      <div hidden={view === "timeline"}>
+      <div>
         {results.map((r) => {
           const hasDiagram = r.occurrences.some((o) => o.diagram_url);
           return (
