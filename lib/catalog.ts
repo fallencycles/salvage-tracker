@@ -235,7 +235,9 @@ export async function searchCatalog({
       `select r.part_no_normalized as n, r.model_code, r.model_family, mn.name as model_name,
               r.year_start, r.year_end
          from mv_part_fitment_ranges r
-         left join model_name mn on mn.model_code = r.model_code
+         left join model_name mn
+           on mn.model_code = r.model_code
+          and mn.model_family is not distinct from r.model_family
         where r.part_no_normalized = any($1::text[])
         order by r.model_code, r.year_start`,
       [page]

@@ -4,6 +4,9 @@
 --
 -- Additive & safe to re-run (INSERT ... ON CONFLICT DO NOTHING keeps your edits).
 
+-- NOTE: migration 006 re-keys this table to (model_code, model_family) because
+-- codes are reused across families. This file still uses the original single-
+-- column key so it runs standalone on a fresh DB; 006 upgrades it.
 create table if not exists model_name (
   model_code   text primary key,
   name         text not null,
