@@ -54,5 +54,6 @@ insert into model_name (model_code, name, model_family) values
   ('VRSCDX',  'Night Rod Special',        'V-Rod'),
   ('VRSCDXA', 'Night Rod Special (ABS)',  'V-Rod'),
   ('VRSCR',   'Street Rod',               'V-Rod'),
-  ('VRSCX',   'Screamin'' Eagle V-Rod',   'V-Rod')
+  ('VRSCX',   'Screamin'' Eagle V-Rod',   'V-Rod'),
+  ('VRSCF',   'V-Rod Muscle',             'V-Rod')
 on conflict (model_code, model_family) do nothing;
