@@ -459,6 +459,158 @@ function CalloutBadge({ n, size = 20 }: { n: string; size?: number }) {
   );
 }
 
+const FAMILY_ORDER = ["Touring", "Softail", "Dyna", "Sportster", "V-Rod", "Trike", "Other"];
+const FAMILY_ACCENT: Record<string, string> = {
+  Touring: "var(--tag-blue)",
+  Softail: "var(--tag-green)",
+  Dyna: "var(--tag-yellow)",
+  "V-Rod": "var(--tag-rust)",
+  Sportster: "#9b7cb8",
+  Trike: "#7fae9c",
+  Other: "var(--ink-dim)",
+};
+const familyRank = (f: string) => {
+  const i = FAMILY_ORDER.indexOf(f);
+  return i === -1 ? FAMILY_ORDER.length : i;
+};
+
+// "Fits" as collapsible groups, one per model family. The header shows the
+// family, model count and overall year span; expanding reveals each model
+// code (+ friendly name) with its year ranges.
+function FitsAccordion({ fitment }: { fitment: FitmentRange[] }) {
+  const rows = groupFitment(fitment); // [{ code, family, name, years }]
+
+  const groups = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const key = r.family ?? "Other";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(r);
+  }
+  const span = new Map<string, [number, number]>();
+  for (const f of fitment) {
+    const key = f.model_family ?? "Other";
+    const cur = span.get(key);
+    span.set(
+      key,
+      cur ? [Math.min(cur[0], f.year_start), Math.max(cur[1], f.year_end)] : [f.year_start, f.year_end]
+    );
+  }
+  const families = [...groups.keys()].sort(
+    (a, b) => familyRank(a) - familyRank(b) || a.localeCompare(b)
+  );
+
+  const [open, setOpen] = useState<Set<string>>(
+    () => new Set(families.length === 1 ? families : [])
+  );
+  const toggle = (f: string) =>
+    setOpen((s) => {
+      const n = new Set(s);
+      n.has(f) ? n.delete(f) : n.add(f);
+      return n;
+    });
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginBottom: 22 }}>
+        No model/year fitment recorded for this part.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        marginBottom: 22,
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        overflow: "hidden",
+      }}
+    >
+      {families.map((fam, i) => {
+        const list = groups.get(fam)!;
+        const isOpen = open.has(fam);
+        const [ys, ye] = span.get(fam) ?? [0, 0];
+        return (
+          <div key={fam} style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+            <button
+              type="button"
+              onClick={() => toggle(fam)}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 12px",
+                background: isOpen ? "var(--panel)" : "transparent",
+                border: "none",
+                borderLeft: `3px solid ${FAMILY_ACCENT[fam] ?? "var(--ink-dim)"}`,
+                color: "var(--ink)",
+                font: "inherit",
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ color: "var(--ink-dim)", fontSize: 11, width: 9 }}>{isOpen ? "▾" : "▸"}</span>
+              <span style={{ fontWeight: 600, fontSize: 13 }}>{fam}</span>
+              <span style={{ fontSize: 11.5, color: "var(--ink-dim)", fontFamily: "var(--font-mono)" }}>
+                {list.length} model{list.length === 1 ? "" : "s"} · {ys === ye ? ys : `${ys}–${ye}`}
+              </span>
+            </button>
+            {isOpen && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(120px, 210px) 1fr",
+                  rowGap: 7,
+                  columnGap: 12,
+                  padding: "4px 14px 12px 25px",
+                }}
+              >
+                {list.map((f) => (
+                  <div key={f.code} style={{ display: "contents" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 12.5,
+                          color: "var(--ink)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {f.code}
+                      </span>
+                      {f.name && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            lineHeight: 1.1,
+                            padding: "3px 7px",
+                            borderRadius: 999,
+                            border: "1px solid var(--border)",
+                            background: "var(--panel-raised)",
+                            color: "var(--ink-dim)",
+                          }}
+                        >
+                          {f.name}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      style={{ fontFamily: "var(--font-mono)", fontSize: 12.5, color: "var(--tag-green)" }}
+                    >
+                      {f.years}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PartModal({
   result,
   onClose,
@@ -592,6 +744,11 @@ function PartModal({
         </div>
 
         <div style={{ padding: "18px" }}>
+          <div style={sectionLabel}>
+            Fits {fits.length > 0 ? `(${fits.length} model${fits.length === 1 ? "" : "s"})` : ""}
+          </div>
+          <FitsAccordion fitment={result.fitment} />
+
           {diagrams.length > 0 && (
             <div style={{ marginBottom: 22 }}>
               <div style={sectionLabel}>
@@ -666,59 +823,6 @@ function PartModal({
                   </figure>
                 ))}
               </div>
-            </div>
-          )}
-
-          <div style={sectionLabel}>
-            Fits {fits.length > 0 ? `(${fits.length} model${fits.length === 1 ? "" : "s"})` : ""}
-          </div>
-          {fits.length > 0 ? (
-            <div className="cat-fits">
-              {fits.map((f) => (
-                <div key={f.code} style={{ display: "contents" }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                    <span
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: 12.5,
-                        color: "var(--ink)",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {f.code}
-                    </span>
-                    {f.name && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          lineHeight: 1.1,
-                          padding: "3px 7px",
-                          borderRadius: 999,
-                          border: "1px solid var(--border)",
-                          background: "var(--panel-raised)",
-                          color: "var(--ink-dim)",
-                        }}
-                      >
-                        {f.name}
-                      </span>
-                    )}
-                  </div>
-                  <div
-                    className="cat-fits-years"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 12.5,
-                      color: "var(--tag-green)",
-                    }}
-                  >
-                    {f.years}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ fontSize: 12.5, color: "var(--ink-dim)", marginBottom: 22 }}>
-              No model/year fitment recorded for this part.
             </div>
           )}
 
