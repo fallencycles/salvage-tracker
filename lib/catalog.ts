@@ -127,9 +127,14 @@ export async function searchCatalog({
   }
 
   if (tsQuery) {
-    const { rows } = await db.query<{ n: string; rank: number }>(
+    // Descriptions read "<what it is>, <qualifier>" — "FENDER, front" vs
+    // "DECAL, fender" vs "SCREW (4), front fender". Pull the head (before the
+    // first comma) so a query that names the head can be floated to the top.
+    const { rows } = await db.query<{ n: string; rank: number; head: string | null }>(
       `with q as (select to_tsquery('english', $1) as query)
-       select cp.part_no_normalized as n, max(ts_rank_cd(cp.search, q.query)) as rank
+       select cp.part_no_normalized as n,
+              max(ts_rank_cd(cp.search, q.query)) as rank,
+              min(lower(split_part(coalesce(cp.description, ''), ',', 1))) as head
          from catalog_part cp, q
         where cp.search @@ q.query
         group by cp.part_no_normalized
@@ -137,8 +142,16 @@ export async function searchCatalog({
         limit 2000`,
       [tsQuery]
     );
-    for (const { n, rank } of rows) {
-      if (!scored.has(n)) scored.set(n, -rank);
+    const qWords = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    const firstWord = qWords[0] ?? "";
+    for (const { n, rank, head } of rows) {
+      if (scored.has(n)) continue;
+      const h = head ?? "";
+      // every query word appears in the description head -> it's that part,
+      // not something that merely mentions it.
+      const headHit = qWords.length > 0 && qWords.every((w) => h.includes(w));
+      const headStarts = firstWord !== "" && h.startsWith(firstWord);
+      scored.set(n, -rank - (headHit ? 1e6 : 0) - (headStarts ? 5e5 : 0));
     }
   }
 
