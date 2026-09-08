@@ -39,7 +39,7 @@ type SearchResponse = {
   truncated: boolean;
 };
 
-const FAMILY_BUTTONS = ["Touring", "Softail", "Dyna", "Sportster", "V-Rod", "Trike", "Other"];
+const FAMILY_BUTTONS = ["Touring", "Softail", "Dyna", "FXR", "Sportster", "V-Rod", "Trike", "Other"];
 
 function groupFitment(
   fitment: FitmentRange[]
@@ -459,11 +459,12 @@ function CalloutBadge({ n, size = 20 }: { n: string; size?: number }) {
   );
 }
 
-const FAMILY_ORDER = ["Touring", "Softail", "Dyna", "Sportster", "V-Rod", "Trike", "Other"];
+const FAMILY_ORDER = ["Touring", "Softail", "Dyna", "FXR", "Sportster", "V-Rod", "Trike", "Other"];
 const FAMILY_ACCENT: Record<string, string> = {
   Touring: "var(--tag-blue)",
   Softail: "var(--tag-green)",
   Dyna: "var(--tag-yellow)",
+  FXR: "#c98a5b",
   "V-Rod": "var(--tag-rust)",
   Sportster: "#9b7cb8",
   Trike: "#7fae9c",

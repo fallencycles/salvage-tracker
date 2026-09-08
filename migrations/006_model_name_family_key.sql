@@ -55,5 +55,27 @@ insert into model_name (model_code, name, model_family) values
   ('VRSCDXA', 'Night Rod Special (ABS)',  'V-Rod'),
   ('VRSCR',   'Street Rod',               'V-Rod'),
   ('VRSCX',   'Screamin'' Eagle V-Rod',   'V-Rod'),
-  ('VRSCF',   'V-Rod Muscle',             'V-Rod')
+  ('VRSCF',   'V-Rod Muscle',             'V-Rod'),
+  -- Dyna FXDWG/FXDP special editions
+  ('FXDWG2', 'Dyna Wide Glide (2001 special edition)', 'Dyna'),
+  ('FXDWG3', 'Dyna Wide Glide (2002 special edition)', 'Dyna'),
+  ('FXDP',   'Dyna Defender (police)',    'Dyna'),
+  -- FXR (2000 FXR4 revival)
+  ('FXR4',   'FXR4',                      'FXR'),
+  -- Sportster (2000-2002)
+  ('XL883',    'Sportster 883',           'Sportster'),
+  ('XL883C',   'Sportster 883 Custom',    'Sportster'),
+  ('XL883R',   'Sportster 883 R',         'Sportster'),
+  ('XL883HUG', 'Sportster 883 Hugger',    'Sportster'),
+  ('XL1200',   'Sportster 1200',          'Sportster'),
+  ('XL1200C',  'Sportster 1200 Custom',   'Sportster'),
+  ('XL1200S',  'Sportster 1200 Sport',    'Sportster'),
+  -- Touring Police + CVO (SEI) special editions
+  ('FLHP',    'Police Road King',           'Touring'),
+  ('FLHPI',   'Police Road King (EFI)',     'Touring'),
+  ('FLHPEI',  'Police Road King (EFI)',     'Touring'),
+  ('FLHTPI',  'Police Electra Glide (EFI)', 'Touring'),
+  ('FLHRSEI', 'CVO Road King',              'Touring'),
+  ('FLTRSEI', 'CVO Road Glide',             'Touring'),
+  ('FLTRSEI2','CVO Road Glide',             'Touring')
 on conflict (model_code, model_family) do nothing;

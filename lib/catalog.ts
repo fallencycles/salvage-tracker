@@ -15,7 +15,7 @@ export type FitmentRange = {
 };
 
 // Canonical model-family buttons in the UI. Anything not in this list is "Other".
-export const MODEL_FAMILIES = ["Touring", "Softail", "Dyna", "Sportster", "V-Rod", "Trike"] as const;
+export const MODEL_FAMILIES = ["Touring", "Softail", "Dyna", "FXR", "Sportster", "V-Rod", "Trike"] as const;
 const OTHER = "Other";
 
 export type CatalogOccurrence = {
