@@ -37,5 +37,11 @@ insert into model_name (model_code, name, model_family) values
   ('FXDXI',  'Dyna Super Glide Sport (EFI)',      'Dyna'),
   ('FXDXT',  'Dyna Super Glide T-Sport',          'Dyna'),
   ('FXDF',   'Dyna Fat Bob',                      'Dyna'),
-  ('FXD35',  'Dyna 35th Anniversary Super Glide', 'Dyna')
+  ('FXD35',  'Dyna 35th Anniversary Super Glide', 'Dyna'),
+  ('FLD',    'Dyna Switchback',                   'Dyna'),
+  ('FXDLS',  'Dyna Low Rider S',                  'Dyna'),
+  ('FXDBA',  'Dyna Street Bob (special edition)', 'Dyna'),
+  ('FXDBB',  'Dyna Street Bob (special edition)', 'Dyna'),
+  ('FXDBC',  'Dyna Street Bob (special edition)', 'Dyna'),
+  ('FXDBP',  'Dyna Street Bob (special edition)', 'Dyna')
 on conflict (model_code, model_family) do nothing;
