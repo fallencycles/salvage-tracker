@@ -43,5 +43,16 @@ insert into model_name (model_code, name, model_family) values
   ('FXDBA',  'Dyna Street Bob (special edition)', 'Dyna'),
   ('FXDBB',  'Dyna Street Bob (special edition)', 'Dyna'),
   ('FXDBC',  'Dyna Street Bob (special edition)', 'Dyna'),
-  ('FXDBP',  'Dyna Street Bob (special edition)', 'Dyna')
+  ('FXDBP',  'Dyna Street Bob (special edition)', 'Dyna'),
+  -- V-Rod / VRSC (2002-2008). The importer maps source family "VRSC" -> "V-Rod".
+  ('VRSCA',   'V-Rod',                    'V-Rod'),
+  ('VRSCB',   'V-Rod',                    'V-Rod'),
+  ('VRSCAW',  'V-Rod (wide front tire)',  'V-Rod'),
+  ('VRSCAWA', 'V-Rod (ABS)',              'V-Rod'),
+  ('VRSCD',   'Night Rod',                'V-Rod'),
+  ('VRSCDA',  'Night Rod (ABS)',          'V-Rod'),
+  ('VRSCDX',  'Night Rod Special',        'V-Rod'),
+  ('VRSCDXA', 'Night Rod Special (ABS)',  'V-Rod'),
+  ('VRSCR',   'Street Rod',               'V-Rod'),
+  ('VRSCX',   'Screamin'' Eagle V-Rod',   'V-Rod')
 on conflict (model_code, model_family) do nothing;

@@ -77,15 +77,26 @@ console.log(`batch: ${manifest.model_line} — ${slugs.join(", ")}`);
   if (badCat.length) bail(`component_images.json has catalog(s) not in manifest: ${[...new Set(badCat.map((e) => e.catalog))]}`);
 }
 
+// Normalize source model_family values onto the canonical family names the UI
+// filters by (see MODEL_FAMILIES in lib/catalog.ts).
+const FAMILY_ALIAS = { VRSC: "V-Rod", "V-ROD": "V-Rod", VROD: "V-Rod" };
+const famNorm = (f) => (f ? FAMILY_ALIAS[f.toUpperCase()] ?? f : f);
+
 const src = new DatabaseSync(path.join(BATCH_DIR, "parts.db"), { readOnly: true });
-const parts = src.prepare(
-  `select id, model_family, catalog_year_start, catalog_year_end, source_catalog, component,
-          index_no, part_no, part_no_normalized, description, models_raw, international, page
-     from catalog_part`
-).all();
-const fitment = src.prepare(
-  `select catalog_part_id, part_no_normalized, model_code, model_year, model_family from catalog_part_fitment`
-).all();
+const parts = src
+  .prepare(
+    `select id, model_family, catalog_year_start, catalog_year_end, source_catalog, component,
+            index_no, part_no, part_no_normalized, description, models_raw, international, page
+       from catalog_part`
+  )
+  .all()
+  .map((p) => ({ ...p, model_family: famNorm(p.model_family) }));
+const fitment = src
+  .prepare(
+    `select catalog_part_id, part_no_normalized, model_code, model_year, model_family from catalog_part_fitment`
+  )
+  .all()
+  .map((r) => ({ ...r, model_family: famNorm(r.model_family) }));
 
 // parts-table (slug, component) coverage vs the image index
 {
@@ -153,8 +164,46 @@ async function pool(items, worker, n) {
   return out;
 }
 
+// IMAGES_ONLY=1 re-runs just the diagram upload + catalog_component_image upsert
+// (recovers a batch whose parts/fitment committed but whose image phase failed).
+const IMAGES_ONLY = process.env.IMAGES_ONLY === "1";
+
+async function doImages() {
+  await ensureBucket();
+  const up = await pool(imgIndex.map((e) => e.image_file), uploadOne, 8);
+  const tally = up.reduce((m, s) => ((m[s.split(":")[0]] = (m[s.split(":")[0]] || 0) + 1), m), {});
+  console.log("image upload:", tally);
+  const bad = up.map((s, k) => [s, imgIndex[k].image_file]).filter(([s]) => s.startsWith("error") || s === "missing_file");
+  bad.slice(0, 20).forEach(([s, f]) => console.error(`  ${s}  ${f}`));
+
+  const BATCH = 500;
+  for (let i = 0; i < imgIndex.length; i += BATCH) {
+    const slice = imgIndex.slice(i, i + BATCH);
+    const vals = [];
+    const tuples = slice.map((e, k) => {
+      const b = k * 4;
+      vals.push(e.catalog, e.component, e.page ?? null, publicUrl(e.image_file));
+      return `($${b + 1},$${b + 2},$${b + 3},$${b + 4})`;
+    });
+    await db.query(
+      `insert into catalog_component_image (catalog, component, page, image_url) values ${tuples.join(",")}
+       on conflict (catalog, component) do update set page = excluded.page, image_url = excluded.image_url`,
+      vals
+    );
+  }
+  console.log(`catalog_component_image: upserted ${imgIndex.length} rows`);
+}
+
 async function main() {
   await db.connect();
+
+  if (IMAGES_ONLY) {
+    console.log("IMAGES_ONLY — skipping parts / fitment / ranges");
+    await doImages();
+    await db.end();
+    src.close();
+    return;
+  }
 
   const dup = await db.query("select count(*)::int n from catalog_part where source_catalog = any($1::text[])", [sourceCatalogs]);
   if (dup.rows[0].n > 0) bail(`ABORT: ${dup.rows[0].n} catalog_part rows already exist for ${sourceCatalogs.join(", ")} — batch already imported`);
@@ -214,29 +263,7 @@ async function main() {
   await db.query("analyze catalog_part_fitment");
   await db.query("analyze mv_part_fitment_ranges");
 
-  // ---- component diagrams ----
-  await ensureBucket();
-  const up = await pool(imgIndex.map((e) => e.image_file), uploadOne, 8);
-  const tally = up.reduce((m, s) => ((m[s.split(":")[0]] = (m[s.split(":")[0]] || 0) + 1), m), {});
-  console.log("image upload:", tally);
-  const bad = up.map((s, k) => [s, imgIndex[k].image_file]).filter(([s]) => s.startsWith("error") || s === "missing_file");
-  bad.slice(0, 20).forEach(([s, f]) => console.error(`  ${s}  ${f}`));
-
-  const BATCH = 500;
-  for (let i = 0; i < imgIndex.length; i += BATCH) {
-    const slice = imgIndex.slice(i, i + BATCH);
-    const vals = [];
-    const tuples = slice.map((e, k) => {
-      const b = k * 4;
-      vals.push(e.catalog, e.component, e.page ?? null, publicUrl(e.image_file));
-      return `($${b + 1},$${b + 2},$${b + 3},$${b + 4})`;
-    });
-    await db.query(
-      `insert into catalog_component_image (catalog, component, page, image_url) values ${tuples.join(",")}
-       on conflict (catalog, component) do update set page = excluded.page, image_url = excluded.image_url`,
-      vals
-    );
-  }
+  await doImages();
 
   // ---- sanity ----
   const after = await db.query(
