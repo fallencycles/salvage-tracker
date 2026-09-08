@@ -18,13 +18,24 @@ begin
   end if;
 end $$;
 
--- Dyna friendly names (1991-2000). Editable.
+-- Dyna friendly names (1991-2010). Codes with a long life get their
+-- longest-lived name (FXDB was Sturgis in '91-'92, then Street Bob; FXDC was
+-- Daytona in '92, then Super Glide Custom). Editable.
 insert into model_name (model_code, name, model_family) values
-  ('FXD',   'Dyna Super Glide',        'Dyna'),
-  ('FXDB',  'Dyna Sturgis',            'Dyna'),
-  ('FXDC',  'Dyna Daytona',            'Dyna'),
-  ('FXDL',  'Dyna Low Rider',          'Dyna'),
-  ('FXDS',  'Dyna Convertible',        'Dyna'),
-  ('FXDWG', 'Dyna Wide Glide',         'Dyna'),
-  ('FXDX',  'Dyna Super Glide Sport',  'Dyna')
+  ('FXD',    'Dyna Super Glide',                  'Dyna'),
+  ('FXDI',   'Dyna Super Glide (EFI)',            'Dyna'),
+  ('FXDB',   'Dyna Street Bob',                   'Dyna'),
+  ('FXDBI',  'Dyna Street Bob (EFI)',             'Dyna'),
+  ('FXDC',   'Dyna Super Glide Custom',           'Dyna'),
+  ('FXDCI',  'Dyna Super Glide Custom (EFI)',     'Dyna'),
+  ('FXDL',   'Dyna Low Rider',                    'Dyna'),
+  ('FXDLI',  'Dyna Low Rider (EFI)',              'Dyna'),
+  ('FXDS',   'Dyna Convertible',                  'Dyna'),
+  ('FXDWG',  'Dyna Wide Glide',                   'Dyna'),
+  ('FXDWGI', 'Dyna Wide Glide (EFI)',             'Dyna'),
+  ('FXDX',   'Dyna Super Glide Sport',            'Dyna'),
+  ('FXDXI',  'Dyna Super Glide Sport (EFI)',      'Dyna'),
+  ('FXDXT',  'Dyna Super Glide T-Sport',          'Dyna'),
+  ('FXDF',   'Dyna Fat Bob',                      'Dyna'),
+  ('FXD35',  'Dyna 35th Anniversary Super Glide', 'Dyna')
 on conflict (model_code, model_family) do nothing;
