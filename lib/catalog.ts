@@ -470,27 +470,3 @@ export async function catalogModels(): Promise<CatalogModel[]> {
   }
   return modelsCache;
 }
-
-// Which of the canonical families (plus "Other") actually have parts, so the UI
-// can render every button but disable the empty ones.
-let familyCountsCache: Record<string, number> | null = null;
-
-export async function catalogFamilyCounts(): Promise<Record<string, number>> {
-  if (!familyCountsCache) {
-    const db = getDb();
-    const { rows } = await db.query<{ model_family: string | null; codes: string }>(
-      `select model_family, count(distinct model_code) as codes
-         from mv_part_fitment_ranges group by model_family`
-    );
-    const known = new Set<string>(MODEL_FAMILIES);
-    const out: Record<string, number> = {};
-    for (const f of MODEL_FAMILIES) out[f] = 0;
-    out[OTHER] = 0;
-    for (const r of rows) {
-      const key = r.model_family && known.has(r.model_family) ? r.model_family : OTHER;
-      out[key] += Number(r.codes);
-    }
-    familyCountsCache = out;
-  }
-  return familyCountsCache;
-}

@@ -39,8 +39,6 @@ type SearchResponse = {
   truncated: boolean;
 };
 
-const FAMILY_BUTTONS = ["Touring", "Softail", "Dyna", "FXR", "Sportster", "V-Rod", "Trike", "Other"];
-
 function groupFitment(
   fitment: FitmentRange[]
 ): { code: string; family: string | null; name: string | null; years: string }[] {
@@ -122,48 +120,6 @@ function diagramsFor(r: CatalogResult): DiagramRef[] {
   return out;
 }
 
-// A small labelled pill — used for the family filter buttons and the family
-// tags on result rows.
-function Pill({
-  children,
-  active,
-  disabled,
-  onClick,
-  title,
-}: {
-  children: React.ReactNode;
-  active?: boolean;
-  disabled?: boolean;
-  onClick?: () => void;
-  title?: string;
-}) {
-  const clickable = !!onClick && !disabled;
-  return (
-    <button
-      type="button"
-      onClick={clickable ? onClick : undefined}
-      disabled={disabled}
-      title={title}
-      style={{
-        fontFamily: "var(--font-sans)",
-        fontSize: 12.5,
-        lineHeight: 1,
-        padding: "6px 11px",
-        borderRadius: 999,
-        border: `1px solid ${active ? "var(--tag-yellow)" : "var(--border)"}`,
-        background: active ? "var(--tag-yellow)" : "var(--panel)",
-        color: active ? "#211f1d" : disabled ? "var(--ink-dim)" : "var(--ink)",
-        fontWeight: active ? 600 : 500,
-        opacity: disabled ? 0.4 : 1,
-        cursor: clickable ? "pointer" : disabled ? "not-allowed" : "default",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
 // Static family tag (not a button) for result rows.
 function FamilyTag({ label }: { label: string }) {
   return (
@@ -187,7 +143,6 @@ function FamilyTag({ label }: { label: string }) {
 
 const YEAR_MIN = 1991;
 const YEAR_MAX = 2026;
-const ALL_YEARS = Array.from({ length: YEAR_MAX - YEAR_MIN + 1 }, (_, i) => YEAR_MAX - i);
 
 type CatalogModel = {
   code: string;
@@ -197,13 +152,146 @@ type CatalogModel = {
   year_end: number;
 };
 
-export function CatalogSearch({
-  models,
-  familyCounts,
+type DialItem = { value: string; label: string };
+
+const DIAL_ITEM_H = 30;
+const DIAL_VISIBLE = 3;
+
+// One tumbler of the combination-lock picker. Scroll, drag the ▲▼, click a row,
+// or use the arrow keys — the strip rolls the chosen row to the centre band.
+function LockDial({
+  label,
+  items,
+  value,
+  onChange,
+  width,
+  grow,
 }: {
-  models: CatalogModel[];
-  familyCounts?: Record<string, number>;
+  label: string;
+  items: DialItem[];
+  value: string;
+  onChange: (v: string) => void;
+  width: number;
+  grow?: boolean;
 }) {
+  const found = items.findIndex((i) => i.value === value);
+  const idx = found < 0 ? 0 : found;
+  const winRef = useRef<HTMLDivElement>(null);
+
+  // Latest step() without re-subscribing the wheel listener every render.
+  const stepRef = useRef<(dir: number) => void>(() => {});
+  stepRef.current = (dir: number) => {
+    const next = idx + dir;
+    if (next < 0 || next >= items.length) return;
+    onChange(items[next].value);
+  };
+  const step = (dir: number) => stepRef.current(dir);
+
+  // Wheel needs a non-passive listener to stop the page scrolling with it.
+  useEffect(() => {
+    const el = winRef.current;
+    if (!el) return;
+    let acc = 0;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      acc += e.deltaY;
+      if (Math.abs(acc) < 22) return;
+      stepRef.current(acc > 0 ? 1 : -1);
+      acc = 0;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const offset = DIAL_ITEM_H * (Math.floor(DIAL_VISIBLE / 2) - idx);
+
+  return (
+    <div className={`fc-dial${grow ? " fc-dial-grow" : ""}`} style={{ width, minWidth: width }}>
+      <div className="fc-dial-label">{label}</div>
+      <div className="fc-dial-body">
+        <button
+          type="button"
+          className="fc-dial-arrow"
+          onClick={() => step(-1)}
+          disabled={idx <= 0}
+          aria-label={`${label}: previous`}
+        >
+          ▲
+        </button>
+        <div
+          ref={winRef}
+          className="fc-dial-window"
+          role="listbox"
+          aria-label={label}
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+              e.preventDefault();
+              step(1);
+            } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+              e.preventDefault();
+              step(-1);
+            } else if (e.key === "Home") {
+              e.preventDefault();
+              onChange(items[0].value);
+            } else if (e.key === "End") {
+              e.preventDefault();
+              onChange(items[items.length - 1].value);
+            }
+          }}
+          style={{ height: DIAL_ITEM_H * DIAL_VISIBLE }}
+        >
+          <div className="fc-dial-strip" style={{ transform: `translateY(${offset}px)` }}>
+            {items.map((it, i) => (
+              <div
+                key={it.value || "_any"}
+                className="fc-dial-item"
+                data-active={i === idx}
+                onClick={() => onChange(it.value)}
+                title={it.label}
+              >
+                {it.label}
+              </div>
+            ))}
+          </div>
+          <div className="fc-dial-notch" aria-hidden />
+        </div>
+        <button
+          type="button"
+          className="fc-dial-arrow"
+          onClick={() => step(1)}
+          disabled={idx >= items.length - 1}
+          aria-label={`${label}: next`}
+        >
+          ▼
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Decorative gear that ratchets a notch each time a dial turns.
+function Gear({ turns, flip }: { turns: number; flip?: boolean }) {
+  return (
+    <svg
+      className="fc-gear"
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      aria-hidden
+      style={{ transform: `rotate(${(flip ? -1 : 1) * turns * 40}deg)` }}
+    >
+      <g stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round">
+        <circle cx="12" cy="12" r="4" />
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
+          <line key={a} x1="12" y1="2.5" x2="12" y2="6" transform={`rotate(${a} 12 12)`} />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+export function CatalogSearch({ models }: { models: CatalogModel[] }) {
   const [q, setQ] = useState("");
   const [model, setModel] = useState("");
   const [year, setYear] = useState("");
@@ -211,6 +299,8 @@ export function CatalogSearch({
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [stack, setStack] = useState<CatalogResult[]>([]);
+  const [turns, setTurns] = useState(0);
+  const bump = () => setTurns((t) => t + 1);
   const selected = stack[stack.length - 1] ?? null;
 
   const reqId = useRef(0);
@@ -265,48 +355,74 @@ export function CatalogSearch({
     }
   }, []);
 
-  // Model dropdown: scoped to the active family, else the whole list deduped by
-  // code (a few codes are reused across families). Labelled "CODE — Friendly name".
-  const modelOptions = useMemo(() => {
-    const scoped = family ? models.filter((m) => m.family === family) : models;
-    const seen = new Set<string>();
-    const out: CatalogModel[] = [];
-    for (const m of scoped) {
-      const key = family ? `${m.family}:${m.code}` : m.code;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(m);
+  // ---- combination-lock picker: YEAR turns first, then FAMILY, then MODEL ----
+  const famOf = (m: CatalogModel) => (FAMILY_ORDER.includes(m.family) ? m.family : "Other");
+
+  // Year dial spans the real data range (min start .. max end across all models).
+  const yearItems = useMemo<DialItem[]>(() => {
+    let lo = YEAR_MAX;
+    let hi = YEAR_MIN;
+    for (const m of models) {
+      if (m.year_start < lo) lo = m.year_start;
+      if (m.year_end > hi) hi = m.year_end;
     }
-    return out.sort((a, b) =>
+    if (lo > hi) {
+      lo = YEAR_MIN;
+      hi = YEAR_MAX;
+    }
+    const out: DialItem[] = [{ value: "", label: "Any" }];
+    for (let y = hi; y >= lo; y--) out.push({ value: String(y), label: String(y) });
+    return out;
+  }, [models]);
+
+  // Family dial only offers families that actually have models in the chosen year.
+  const familyItems = useMemo<DialItem[]>(() => {
+    const y = year ? Number(year) : null;
+    const present = new Set<string>();
+    for (const m of models) {
+      if (y !== null && !(m.year_start <= y && m.year_end >= y)) continue;
+      present.add(famOf(m));
+    }
+    const out: DialItem[] = [{ value: "", label: "Any family" }];
+    for (const f of FAMILY_ORDER) if (present.has(f)) out.push({ value: f, label: f });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models, year]);
+
+  // Model dial: whatever's left after the year + family turns, deduped by code.
+  const modelItems = useMemo<DialItem[]>(() => {
+    const y = year ? Number(year) : null;
+    let ms = models;
+    if (y !== null) ms = ms.filter((m) => m.year_start <= y && m.year_end >= y);
+    if (family) ms = ms.filter((m) => famOf(m) === family);
+    const seen = new Set<string>();
+    const picked: CatalogModel[] = [];
+    for (const m of ms) {
+      if (seen.has(m.code)) continue;
+      seen.add(m.code);
+      picked.push(m);
+    }
+    picked.sort((a, b) =>
       (a.name ?? a.code).localeCompare(b.name ?? b.code, undefined, { sensitivity: "base" })
     );
-  }, [models, family]);
-
-  // Year dropdown: narrowed to the chosen model's span, or the family's overall
-  // span, so you can't pick a year with nothing behind it.
-  const yearOptions = useMemo(() => {
-    const picked = models.find(
-      (m) => m.code === model && (!family || m.family === family)
-    );
-    let lo = YEAR_MIN;
-    let hi = YEAR_MAX;
-    if (picked) {
-      lo = picked.year_start;
-      hi = picked.year_end;
-    } else if (family) {
-      const fam = models.filter((m) => m.family === family);
-      if (fam.length) {
-        lo = Math.min(...fam.map((m) => m.year_start));
-        hi = Math.max(...fam.map((m) => m.year_end));
-      }
+    const out: DialItem[] = [{ value: "", label: "Any model" }];
+    for (const m of picked) {
+      out.push({ value: m.code, label: m.name ? `${m.code} — ${m.name}` : m.code });
     }
-    return ALL_YEARS.filter((y) => y >= lo && y <= hi);
-  }, [models, model, family]);
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models, year, family]);
 
-  // Drop a year that no longer fits the current model/family scope.
+  // Turning the year can strand the family / model picks — roll them back to "Any".
   useEffect(() => {
-    if (year && !yearOptions.includes(Number(year))) setYear("");
-  }, [yearOptions, year]);
+    if (family && !familyItems.some((i) => i.value === family)) {
+      setFamily("");
+      setModel("");
+    }
+  }, [familyItems, family]);
+  useEffect(() => {
+    if (model && !modelItems.some((i) => i.value === model)) setModel("");
+  }, [modelItems, model]);
 
   const results = data?.results ?? [];
   const idle = !q.trim() && !model && !year && !family;
@@ -354,74 +470,53 @@ export function CatalogSearch({
         />
       </div>
 
-      {/* step 1 — family */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, alignItems: "center" }}>
-        <span style={{ fontSize: 11, color: "var(--ink-dim)", marginRight: 2 }}>Family:</span>
-        {FAMILY_BUTTONS.map((f) => {
-          const count = familyCounts?.[f] ?? 0;
-          const disabled = count === 0;
-          const active = family === f;
-          return (
-            <Pill
-              key={f}
-              active={active}
-              disabled={disabled && !active}
-              title={disabled ? `No ${f} parts yet` : `${count} model codes`}
-              onClick={() => {
-                setFamily(active ? "" : f);
-                setModel("");
-              }}
-            >
-              {f}
-            </Pill>
-          );
-        })}
-      </div>
-
-      {/* step 2 — model + year, both scoped to the family picked above */}
-      <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--ink-dim)" }}>
-          Model
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            style={{ ...selectStyle, maxWidth: 280 }}
-          >
-            <option value="">{family ? `All ${family} models` : "Any model"}</option>
-            {modelOptions.map((m) => (
-              <option key={`${m.family}:${m.code}`} value={m.code}>
-                {m.name ? `${m.code} — ${m.name}` : m.code}
-                {!family ? ` (${m.family})` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--ink-dim)" }}>
-          Year
-          <select
-            value={year}
-            onChange={(e) => setYear(e.target.value)}
-            style={{ ...selectStyle, width: 108, fontFamily: "var(--font-mono)" }}
-          >
-            <option value="">Any year</option>
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {(model || year || q || family) && (
+      {/* combination-lock picker — turn Year, then Family, then Model */}
+      <div className="fc-locks">
+        <Gear turns={turns} />
+        <LockDial
+          label="Year"
+          items={yearItems}
+          value={year}
+          onChange={(v) => {
+            setYear(v);
+            bump();
+          }}
+          width={98}
+        />
+        <LockDial
+          label="Family"
+          items={familyItems}
+          value={family}
+          onChange={(v) => {
+            setFamily(v);
+            setModel("");
+            bump();
+          }}
+          width={150}
+        />
+        <LockDial
+          label="Model"
+          items={modelItems}
+          value={model}
+          onChange={(v) => {
+            setModel(v);
+            bump();
+          }}
+          width={232}
+          grow
+        />
+        <Gear turns={turns} flip />
+        {(q || model || year || family) && (
           <button
+            type="button"
+            className="fc-locks-clear"
             onClick={() => {
               setQ("");
               setModel("");
               setYear("");
               setFamily("");
+              bump();
             }}
-            style={{ ...selectStyle, cursor: "pointer", color: "var(--ink-dim)" }}
           >
             Clear
           </button>
@@ -1104,16 +1199,6 @@ const zoomBtn: React.CSSProperties = {
   fontSize: 12.5,
   cursor: "pointer",
   whiteSpace: "nowrap",
-};
-
-const selectStyle: React.CSSProperties = {
-  background: "var(--panel)",
-  border: "1px solid var(--border)",
-  color: "var(--ink)",
-  fontSize: 13,
-  padding: "8px 10px",
-  borderRadius: 6,
-  fontFamily: "var(--font-sans)",
 };
 
 const ellipsis: React.CSSProperties = {
