@@ -551,7 +551,7 @@ const CATEGORY_RULES: [string, RegExp][] = [
   ["Front Fork & Steering", /FRONT FORK|FORK, FRONT|FORK BRACKET|FORK ROCKER|STEERING HEAD/],
   ["Rear Suspension", /SHOCK ABSORBER|REAR FORK|FORK, REAR|FORK REAR|AIR SUSPENSION|SWINGARM/],
   ["Wheels & Brakes", /WHEEL|BRAKE/],
-  ["Fenders", /FENDER/],
+  ["Fenders", /FENDER|STRUT/],
   ["Fairing & Windshield", /FAIRING|WINDSHIELD|SPEED SCREEN/],
   ["Saddlebags & Luggage", /SADDLEBAG|LUGGAGE|TOUR.?PAK/],
   ["Seats & Backrests", /SEAT|SISSY BAR|BACKREST/],

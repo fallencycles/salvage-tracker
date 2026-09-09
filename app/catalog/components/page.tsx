@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { catalogComponentCategories } from "@/lib/catalog";
-import { ComponentCategories } from "@/components/ComponentCategories";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,11 +35,19 @@ export default async function ComponentsPage() {
           {categories.length} systems · {sections.toLocaleString()} sections
         </div>
       </div>
-      <p style={{ color: "var(--ink-dim)", marginTop: 0, marginBottom: 20, fontSize: 14 }}>
-        Every component section across the catalog, rolled up by system. Open one to see its
-        sections; pick a section to see its parts.
+      <p style={{ color: "var(--ink-dim)", marginTop: 0, marginBottom: 16, fontSize: 14 }}>
+        Every component section across the catalog, rolled up into systems.
       </p>
-      <ComponentCategories categories={categories} />
+
+      <div>
+        {categories.map((c) => (
+          <div key={c.label} className="ci-cat-line">
+            <span className="ci-cat-name">{c.label}</span>
+            <span className="ci-cat-dots" aria-hidden />
+            <span className="ci-cat-count">{c.parts.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
