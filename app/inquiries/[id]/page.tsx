@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { InquiryForm, type ModelOption, type InitialInquiry } from "@/components/InquiryForm";
+import { InquiryForm, type InitialInquiry } from "@/components/InquiryForm";
 import { catalogModels } from "@/lib/catalog";
 import { getInquiry, formatReceivedAt } from "@/lib/inquiries";
 
@@ -12,15 +12,6 @@ export default async function EditInquiryPage({ params }: { params: Promise<{ id
 
   const [models, inquiry] = await Promise.all([catalogModels(), getInquiry(idNum)]);
   if (!inquiry) notFound();
-
-  const seen = new Set<string>();
-  const modelOptions: ModelOption[] = [];
-  for (const m of models) {
-    if (!m.name || seen.has(m.name)) continue;
-    seen.add(m.name);
-    modelOptions.push({ name: m.name, family: m.family });
-  }
-  modelOptions.sort((a, b) => a.family.localeCompare(b.family) || a.name.localeCompare(b.name));
 
   const initial: InitialInquiry = {
     id: inquiry.id,
@@ -57,7 +48,7 @@ export default async function EditInquiryPage({ params }: { params: Promise<{ id
         Logged {formatReceivedAt(inquiry.created_at)}
       </p>
 
-      <InquiryForm models={modelOptions} initial={initial} />
+      <InquiryForm models={models} initial={initial} />
     </div>
   );
 }

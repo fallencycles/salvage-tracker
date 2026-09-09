@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { InquiryForm, type ModelOption } from "@/components/InquiryForm";
+import { InquiryForm } from "@/components/InquiryForm";
 import { catalogModels } from "@/lib/catalog";
 import { listInquiries, searchInquiries, formatReceivedAt } from "@/lib/inquiries";
 
@@ -33,15 +33,17 @@ export default async function InquiriesPage({
     filtering ? searchInquiries({ q, year, model }) : listInquiries(50),
   ]);
 
-  // Unique model names for the datalists, sorted by family then name.
-  const seen = new Set<string>();
-  const modelOptions: ModelOption[] = [];
+  // Suggestions for the search-filter datalist: name and code, deduped.
+  const filterModelOpts: { value: string; hint: string }[] = [];
+  const seenFilter = new Set<string>();
   for (const m of models) {
-    if (!m.name || seen.has(m.name)) continue;
-    seen.add(m.name);
-    modelOptions.push({ name: m.name, family: m.family });
+    for (const v of [m.name, m.code]) {
+      if (!v || seenFilter.has(v)) continue;
+      seenFilter.add(v);
+      filterModelOpts.push({ value: v, hint: m.name && v === m.code ? `${m.family} · ${m.name}` : m.family });
+    }
   }
-  modelOptions.sort((a, b) => a.family.localeCompare(b.family) || a.name.localeCompare(b.name));
+  filterModelOpts.sort((a, b) => a.value.localeCompare(b.value));
 
   return (
     <div>
@@ -67,7 +69,7 @@ export default async function InquiriesPage({
         part they ask about. The CSV is one row per part.
       </p>
 
-      <InquiryForm models={modelOptions} />
+      <InquiryForm models={models} />
 
       <h2 style={{ fontSize: 16, margin: "32px 0 10px" }}>Find an inquiry</h2>
       <form
@@ -92,9 +94,9 @@ export default async function InquiriesPage({
         <input name="year" defaultValue={year} placeholder="Year" inputMode="numeric" style={filterInput} />
         <input name="model" defaultValue={model} placeholder="Model" list="filter-models" style={filterInput} />
         <datalist id="filter-models">
-          {modelOptions.map((m) => (
-            <option key={m.name} value={m.name}>
-              {m.family}
+          {filterModelOpts.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.hint}
             </option>
           ))}
         </datalist>

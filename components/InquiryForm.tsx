@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ModelPicker, type CatalogModelOption } from "@/components/ModelPicker";
 
 const input: React.CSSProperties = {
   background: "var(--panel-raised)",
@@ -74,7 +75,8 @@ function formatPhoneInput(raw: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
 
-export type ModelOption = { name: string; family: string };
+// Full model rows now — the picker filters by year and shows/searches codes.
+export type ModelOption = CatalogModelOption;
 
 export type InitialInquiry = {
   id: number;
@@ -140,6 +142,9 @@ export function InquiryForm({
   // Phone is the one contact field we format as it's typed, so the CSV is
   // consistent. Kept in state (the rest are read straight off the form).
   const [phone, setPhone] = useState(() => formatPhoneInput(initial?.phone ?? ""));
+  // Year + model are in state so the model picker can filter by the year.
+  const [year, setYear] = useState(initial?.moto_year ?? "");
+  const [model, setModel] = useState(initial?.moto_model ?? "");
 
   const years = useMemo(() => {
     const now = new Date().getFullYear();
@@ -186,9 +191,9 @@ export function InquiryForm({
       phone: phone.trim(),
       email: fd.get("email"),
       company: fd.get("company"),
-      moto_year: fd.get("moto_year"),
+      moto_year: year.trim(),
       moto_make: fd.get("moto_make"),
-      moto_model: fd.get("moto_model"),
+      moto_model: model.trim(),
       taken_by: fd.get("taken_by"),
       notes: fd.get("notes"),
       parts: lines.map((l) => ({
@@ -223,12 +228,16 @@ export function InquiryForm({
       const fresh = (await res.json()) as InitialInquiry;
       setLines(linesFromInitial(fresh));
       setPhone(formatPhoneInput(fresh.phone ?? ""));
+      setYear(fresh.moto_year ?? "");
+      setModel(fresh.moto_model ?? "");
       setSavedMsg("Changes saved.");
       router.refresh();
     } else {
       formRef.current?.reset();
       setLines([blankLine(), blankLine(), blankLine()]);
       setPhone("");
+      setYear("");
+      setModel("");
       setSavedMsg("Saved. Ready for the next call.");
       router.refresh();
       formRef.current?.querySelector<HTMLInputElement>('input[name="customer_name"]')?.focus();
@@ -293,7 +302,8 @@ export function InquiryForm({
               name="moto_year"
               list="inq-years"
               inputMode="numeric"
-              defaultValue={initial?.moto_year ?? ""}
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
               style={input}
             />
             <datalist id="inq-years">
@@ -317,20 +327,10 @@ export function InquiryForm({
             </datalist>
           </div>
           <div>
-            <label style={label}>Model</label>
-            <input
-              name="moto_model"
-              list="inq-models"
-              defaultValue={initial?.moto_model ?? ""}
-              style={input}
-            />
-            <datalist id="inq-models">
-              {models.map((m) => (
-                <option key={m.name} value={m.name}>
-                  {m.family}
-                </option>
-              ))}
-            </datalist>
+            <label style={label}>
+              Model {year ? <span style={{ color: "var(--ink-dim)" }}>· {year} only</span> : null}
+            </label>
+            <ModelPicker models={models} year={year} value={model} onChange={setModel} />
           </div>
         </div>
       </div>
