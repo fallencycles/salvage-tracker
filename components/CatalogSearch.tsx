@@ -347,7 +347,7 @@ export function CatalogSearch({
 
   // ---- filter choices: each control narrows the others ----
   const famOf = useCallback(
-    (m: CatalogModel) => (FAMILY_ORDER.includes(m.family) ? m.family : "Other"),
+    (m: CatalogModel) => (KNOWN_FAMILIES.includes(m.family) ? m.family : "Other"),
     []
   );
   const activeModel = useMemo(
@@ -386,7 +386,7 @@ export function CatalogSearch({
       if (y !== null && !(m.year_start <= y && m.year_end >= y)) continue;
       present.add(famOf(m));
     }
-    return FAMILY_ORDER.filter((f) => present.has(f)).map((f) => ({ value: f, label: f }));
+    return [...present].sort((a, b) => a.localeCompare(b)).map((f) => ({ value: f, label: f }));
   }, [models, activeModel, year, famOf]);
 
   // Model list: what's left after the year + family filters, deduped by code.
@@ -403,7 +403,7 @@ export function CatalogSearch({
       picked.push(m);
     }
     picked.sort((a, b) =>
-      (a.name ?? a.code).localeCompare(b.name ?? b.code, undefined, { sensitivity: "base" })
+      a.code.localeCompare(b.code, undefined, { sensitivity: "base", numeric: true })
     );
     return picked.map((m) => ({
       value: m.code,
@@ -691,7 +691,7 @@ export function CatalogSearch({
                     ▦
                   </span>
                 )}
-                {r.families.map((f) => (
+                {[...r.families].sort((a, b) => a.localeCompare(b)).map((f) => (
                   <FamilyTag key={f} label={f} />
                 ))}
                 <span
@@ -749,7 +749,9 @@ function CalloutBadge({ n, size = 20 }: { n: string; size?: number }) {
   );
 }
 
-const FAMILY_ORDER = ["Touring", "Softail", "Dyna", "FXR", "Sportster", "V-Rod", "Trike", "Other"];
+// Recognised family names (anything else collapses to "Other"). Display order is
+// alphabetical everywhere; this is just the membership set.
+const KNOWN_FAMILIES = ["Touring", "Softail", "Dyna", "FXR", "Sportster", "V-Rod", "Trike", "Other"];
 const FAMILY_ACCENT: Record<string, string> = {
   Touring: "var(--tag-blue)",
   Softail: "var(--tag-green)",
@@ -759,10 +761,6 @@ const FAMILY_ACCENT: Record<string, string> = {
   Sportster: "#9b7cb8",
   Trike: "#7fae9c",
   Other: "var(--ink-dim)",
-};
-const familyRank = (f: string) => {
-  const i = FAMILY_ORDER.indexOf(f);
-  return i === -1 ? FAMILY_ORDER.length : i;
 };
 
 // "Fits" as collapsible groups, one per model family. The header shows the
@@ -786,9 +784,7 @@ function FitsAccordion({ fitment }: { fitment: FitmentRange[] }) {
       cur ? [Math.min(cur[0], f.year_start), Math.max(cur[1], f.year_end)] : [f.year_start, f.year_end]
     );
   }
-  const families = [...groups.keys()].sort(
-    (a, b) => familyRank(a) - familyRank(b) || a.localeCompare(b)
-  );
+  const families = [...groups.keys()].sort((a, b) => a.localeCompare(b));
 
   const [open, setOpen] = useState<Set<string>>(
     () => new Set(families.length === 1 ? families : [])
@@ -1011,7 +1007,7 @@ function PartModal({
             </div>
             {result.families.length > 0 && (
               <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                {result.families.map((f) => (
+                {[...result.families].sort((a, b) => a.localeCompare(b)).map((f) => (
                   <FamilyTag key={f} label={f} />
                 ))}
               </div>
