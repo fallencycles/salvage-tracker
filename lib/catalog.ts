@@ -470,3 +470,21 @@ export async function catalogModels(): Promise<CatalogModel[]> {
   }
   return modelsCache;
 }
+
+// Distinct component names (the head before the first " - " qualifier), for the
+// search-bar typeahead. ~600 short strings — sent to the client once.
+let componentsCache: string[] | null = null;
+
+export async function catalogComponents(): Promise<string[]> {
+  if (!componentsCache) {
+    const db = getDb();
+    const { rows } = await db.query<{ c: string }>(
+      `select distinct btrim(split_part(component, ' - ', 1)) as c
+         from catalog_part
+        where component is not null and btrim(component) <> ''
+        order by c`
+    );
+    componentsCache = rows.map((r) => r.c).filter(Boolean);
+  }
+  return componentsCache;
+}

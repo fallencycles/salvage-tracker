@@ -1,5 +1,5 @@
 import { CatalogSearch } from "@/components/CatalogSearch";
-import { catalogModels, catalogStats } from "@/lib/catalog";
+import { catalogComponents, catalogModels, catalogStats } from "@/lib/catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,7 +9,11 @@ export const metadata = {
 };
 
 export default async function CatalogPage() {
-  const [stats, models] = await Promise.all([catalogStats(), catalogModels()]);
+  const [stats, models, components] = await Promise.all([
+    catalogStats(),
+    catalogModels(),
+    catalogComponents(),
+  ]);
 
   return (
     <div>
@@ -31,7 +35,7 @@ export default async function CatalogPage() {
         Reference lookup — Harley part numbers, the components they belong to, and the
         models and years each one fits.
       </p>
-      <CatalogSearch models={models} />
+      <CatalogSearch models={models} components={components} />
     </div>
   );
 }

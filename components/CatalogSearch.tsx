@@ -152,146 +152,136 @@ type CatalogModel = {
   year_end: number;
 };
 
-type DialItem = { value: string; label: string };
+type Opt = { value: string; label: string };
 
-const DIAL_ITEM_H = 30;
-const DIAL_VISIBLE = 3;
-
-// One tumbler of the combination-lock picker. Scroll, drag the ▲▼, click a row,
-// or use the arrow keys — the strip rolls the chosen row to the centre band.
-function LockDial({
+// A filter as a pill: shows the current pick with an ✕, or a "＋ Label" prompt.
+// Clicking opens a popover list (with a filter box once the list is long).
+function FilterChip({
   label,
-  items,
   value,
-  onChange,
-  width,
-  grow,
+  valueLabel,
+  items,
+  onPick,
+  searchable,
 }: {
   label: string;
-  items: DialItem[];
   value: string;
-  onChange: (v: string) => void;
-  width: number;
-  grow?: boolean;
+  valueLabel: string;
+  items: Opt[];
+  onPick: (v: string) => void;
+  searchable?: boolean;
 }) {
-  const found = items.findIndex((i) => i.value === value);
-  const idx = found < 0 ? 0 : found;
-  const winRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
 
-  // Latest step() without re-subscribing the wheel listener every render.
-  const stepRef = useRef<(dir: number) => void>(() => {});
-  stepRef.current = (dir: number) => {
-    const next = idx + dir;
-    if (next < 0 || next >= items.length) return;
-    onChange(items[next].value);
-  };
-  const step = (dir: number) => stepRef.current(dir);
-
-  // Wheel needs a non-passive listener to stop the page scrolling with it.
   useEffect(() => {
-    const el = winRef.current;
-    if (!el) return;
-    let acc = 0;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      acc += e.deltaY;
-      if (Math.abs(acc) < 22) return;
-      stepRef.current(acc > 0 ? 1 : -1);
-      acc = 0;
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
-  const offset = DIAL_ITEM_H * (Math.floor(DIAL_VISIBLE / 2) - idx);
+  useEffect(() => {
+    if (open) setFilter("");
+  }, [open]);
+
+  const showSearch = searchable && items.length > 8;
+  const f = filter.trim().toLowerCase();
+  const shown = f ? items.filter((it) => it.label.toLowerCase().includes(f)) : items;
+
+  const pick = (v: string) => {
+    onPick(v);
+    setOpen(false);
+  };
 
   return (
-    <div className={`fc-dial${grow ? " fc-dial-grow" : ""}`} style={{ width, minWidth: width }}>
-      <div className="fc-dial-label">{label}</div>
-      <div className="fc-dial-body">
-        <button
-          type="button"
-          className="fc-dial-arrow"
-          onClick={() => step(-1)}
-          disabled={idx <= 0}
-          aria-label={`${label}: previous`}
-        >
-          ▲
-        </button>
-        <div
-          ref={winRef}
-          className="fc-dial-window"
-          role="listbox"
-          aria-label={label}
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown" || e.key === "ArrowRight") {
-              e.preventDefault();
-              step(1);
-            } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
-              e.preventDefault();
-              step(-1);
-            } else if (e.key === "Home") {
-              e.preventDefault();
-              onChange(items[0].value);
-            } else if (e.key === "End") {
-              e.preventDefault();
-              onChange(items[items.length - 1].value);
-            }
-          }}
-          style={{ height: DIAL_ITEM_H * DIAL_VISIBLE }}
-        >
-          <div className="fc-dial-strip" style={{ transform: `translateY(${offset}px)` }}>
-            {items.map((it, i) => (
-              <div
-                key={it.value || "_any"}
-                className="fc-dial-item"
-                data-active={i === idx}
-                onClick={() => onChange(it.value)}
+    <div className="cat-chip-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="cat-chip"
+        data-set={value ? "true" : "false"}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span>{value ? valueLabel : label}</span>
+        {value ? (
+          <span
+            className="cat-chip-x"
+            role="button"
+            aria-label={`Clear ${label}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onPick("");
+              setOpen(false);
+            }}
+          >
+            ✕
+          </span>
+        ) : (
+          <span className="cat-chip-x" aria-hidden>
+            ▾
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="cat-pop">
+          {showSearch && (
+            <input
+              className="cat-pop-search"
+              autoFocus
+              placeholder={`Filter ${label.toLowerCase()}…`}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          )}
+          <div className="cat-pop-list">
+            <button
+              type="button"
+              className="cat-pop-opt"
+              data-active={!value}
+              onClick={() => pick("")}
+            >
+              Any {label.toLowerCase()}
+            </button>
+            {shown.map((it) => (
+              <button
+                type="button"
+                key={it.value}
+                className="cat-pop-opt"
+                data-active={it.value === value}
+                onClick={() => pick(it.value)}
                 title={it.label}
               >
                 {it.label}
-              </div>
+              </button>
             ))}
+            {shown.length === 0 && <div className="cat-pop-empty">No match</div>}
           </div>
-          <div className="fc-dial-notch" aria-hidden />
         </div>
-        <button
-          type="button"
-          className="fc-dial-arrow"
-          onClick={() => step(1)}
-          disabled={idx >= items.length - 1}
-          aria-label={`${label}: next`}
-        >
-          ▼
-        </button>
-      </div>
+      )}
     </div>
   );
 }
 
-// Decorative gear that ratchets a notch each time a dial turns.
-function Gear({ turns, flip }: { turns: number; flip?: boolean }) {
-  return (
-    <svg
-      className="fc-gear"
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      aria-hidden
-      style={{ transform: `rotate(${(flip ? -1 : 1) * turns * 40}deg)` }}
-    >
-      <g stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round">
-        <circle cx="12" cy="12" r="4" />
-        {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
-          <line key={a} x1="12" y1="2.5" x2="12" y2="6" transform={`rotate(${a} 12 12)`} />
-        ))}
-      </g>
-    </svg>
-  );
-}
+type Suggestion =
+  | { kind: "part"; label: string; value: string }
+  | { kind: "model"; label: string; sub: string; value: string }
+  | { kind: "component"; label: string; value: string };
 
-export function CatalogSearch({ models }: { models: CatalogModel[] }) {
+export function CatalogSearch({
+  models,
+  components,
+}: {
+  models: CatalogModel[];
+  components: string[];
+}) {
   const [q, setQ] = useState("");
   const [model, setModel] = useState("");
   const [year, setYear] = useState("");
@@ -299,8 +289,8 @@ export function CatalogSearch({ models }: { models: CatalogModel[] }) {
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [stack, setStack] = useState<CatalogResult[]>([]);
-  const [turns, setTurns] = useState(0);
-  const bump = () => setTurns((t) => t + 1);
+  const [taOpen, setTaOpen] = useState(false);
+  const [taIdx, setTaIdx] = useState(-1);
   const selected = stack[stack.length - 1] ?? null;
 
   const reqId = useRef(0);
@@ -355,14 +345,26 @@ export function CatalogSearch({ models }: { models: CatalogModel[] }) {
     }
   }, []);
 
-  // ---- combination-lock picker: YEAR turns first, then FAMILY, then MODEL ----
-  const famOf = (m: CatalogModel) => (FAMILY_ORDER.includes(m.family) ? m.family : "Other");
+  // ---- filter choices: each control narrows the others ----
+  const famOf = useCallback(
+    (m: CatalogModel) => (FAMILY_ORDER.includes(m.family) ? m.family : "Other"),
+    []
+  );
+  const activeModel = useMemo(
+    () => models.find((m) => m.code === model) ?? null,
+    [models, model]
+  );
 
-  // Year dial spans the real data range (min start .. max end across all models).
-  const yearItems = useMemo<DialItem[]>(() => {
+  // Year list: the span of the chosen model, else the chosen family, else all data.
+  const yearChoices = useMemo<Opt[]>(() => {
+    const src = activeModel
+      ? [activeModel]
+      : family
+      ? models.filter((m) => famOf(m) === family)
+      : models;
     let lo = YEAR_MAX;
     let hi = YEAR_MIN;
-    for (const m of models) {
+    for (const m of src) {
       if (m.year_start < lo) lo = m.year_start;
       if (m.year_end > hi) hi = m.year_end;
     }
@@ -370,27 +372,25 @@ export function CatalogSearch({ models }: { models: CatalogModel[] }) {
       lo = YEAR_MIN;
       hi = YEAR_MAX;
     }
-    const out: DialItem[] = [{ value: "", label: "Any" }];
+    const out: Opt[] = [];
     for (let y = hi; y >= lo; y--) out.push({ value: String(y), label: String(y) });
     return out;
-  }, [models]);
+  }, [models, activeModel, family, famOf]);
 
-  // Family dial only offers families that actually have models in the chosen year.
-  const familyItems = useMemo<DialItem[]>(() => {
+  // Family list: families with a model in the chosen year (or the model's own family).
+  const familyChoices = useMemo<Opt[]>(() => {
+    if (activeModel) return [{ value: famOf(activeModel), label: famOf(activeModel) }];
     const y = year ? Number(year) : null;
     const present = new Set<string>();
     for (const m of models) {
       if (y !== null && !(m.year_start <= y && m.year_end >= y)) continue;
       present.add(famOf(m));
     }
-    const out: DialItem[] = [{ value: "", label: "Any family" }];
-    for (const f of FAMILY_ORDER) if (present.has(f)) out.push({ value: f, label: f });
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [models, year]);
+    return FAMILY_ORDER.filter((f) => present.has(f)).map((f) => ({ value: f, label: f }));
+  }, [models, activeModel, year, famOf]);
 
-  // Model dial: whatever's left after the year + family turns, deduped by code.
-  const modelItems = useMemo<DialItem[]>(() => {
+  // Model list: what's left after the year + family filters, deduped by code.
+  const modelChoices = useMemo<Opt[]>(() => {
     const y = year ? Number(year) : null;
     let ms = models;
     if (y !== null) ms = ms.filter((m) => m.year_start <= y && m.year_end >= y);
@@ -405,120 +405,241 @@ export function CatalogSearch({ models }: { models: CatalogModel[] }) {
     picked.sort((a, b) =>
       (a.name ?? a.code).localeCompare(b.name ?? b.code, undefined, { sensitivity: "base" })
     );
-    const out: DialItem[] = [{ value: "", label: "Any model" }];
-    for (const m of picked) {
-      out.push({ value: m.code, label: m.name ? `${m.code} — ${m.name}` : m.code });
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [models, year, family]);
+    return picked.map((m) => ({
+      value: m.code,
+      label: m.name ? `${m.code} — ${m.name}` : m.code,
+    }));
+  }, [models, year, family, famOf]);
 
-  // Turning the year can strand the family / model picks — roll them back to "Any".
+  const modelLabel = (code: string) => modelChoices.find((o) => o.value === code)?.label ?? code;
+
+  // Setting one filter can strand another — drop a pick that's no longer offered.
   useEffect(() => {
-    if (family && !familyItems.some((i) => i.value === family)) {
-      setFamily("");
-      setModel("");
+    if (year && !yearChoices.some((o) => o.value === year)) setYear("");
+  }, [yearChoices, year]);
+  useEffect(() => {
+    if (family && !familyChoices.some((o) => o.value === family)) setFamily("");
+  }, [familyChoices, family]);
+  useEffect(() => {
+    if (model && !modelChoices.some((o) => o.value === model)) setModel("");
+  }, [modelChoices, model]);
+
+  // ---- search-bar typeahead: jump to a part, model, or component ----
+  const suggestions = useMemo<Suggestion[]>(() => {
+    const s = q.trim();
+    if (s.length < 2) return [];
+    const lc = s.toLowerCase();
+    const out: Suggestion[] = [];
+
+    if (/\d/.test(s) && /^[a-z0-9][a-z0-9 .-]*$/i.test(s)) {
+      out.push({ kind: "part", label: s.toUpperCase(), value: s });
     }
-  }, [familyItems, family]);
+
+    // rank: exact < name-prefix < code-prefix < word-start < substring
+    const rank = (name: string, code: string) => {
+      const n = name.toLowerCase();
+      const c = code.toLowerCase();
+      if (c === lc || n === lc) return 0;
+      if (n.startsWith(lc)) return 1;
+      if (c.startsWith(lc)) return 2;
+      if (n.includes(` ${lc}`)) return 3;
+      if (n.includes(lc)) return 4;
+      if (c.includes(lc)) return 5;
+      return -1;
+    };
+
+    const seenModel = new Set<string>();
+    const modelHits: { code: string; name: string; r: number }[] = [];
+    for (const m of models) {
+      if (seenModel.has(m.code)) continue;
+      const name = m.name ?? m.code;
+      const r = rank(name, m.code);
+      if (r < 0) continue;
+      seenModel.add(m.code);
+      modelHits.push({ code: m.code, name, r });
+    }
+    modelHits
+      .sort((a, b) => a.r - b.r || a.name.length - b.name.length || a.name.localeCompare(b.name))
+      .slice(0, 5)
+      .forEach((m) => out.push({ kind: "model", label: m.name, sub: m.code, value: m.code }));
+
+    components
+      .filter((c) => c.toLowerCase().includes(lc))
+      .sort((a, b) => {
+        const ap = a.toLowerCase().startsWith(lc) ? 0 : 1;
+        const bp = b.toLowerCase().startsWith(lc) ? 0 : 1;
+        return ap - bp || a.length - b.length || a.localeCompare(b);
+      })
+      .slice(0, 5)
+      .forEach((c) => out.push({ kind: "component", label: c, value: c }));
+
+    return out;
+  }, [q, models, components]);
+
   useEffect(() => {
-    if (model && !modelItems.some((i) => i.value === model)) setModel("");
-  }, [modelItems, model]);
+    setTaIdx(-1);
+  }, [suggestions]);
+
+  const applySuggestion = (s: Suggestion) => {
+    setTaOpen(false);
+    if (s.kind === "part") {
+      openPartByNo(s.value.trim());
+      setQ("");
+    } else if (s.kind === "model") {
+      setModel(s.value);
+      setQ("");
+    } else {
+      setQ(s.value);
+    }
+  };
 
   const results = data?.results ?? [];
   const idle = !q.trim() && !model && !year && !family;
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          background: "var(--panel)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          padding: "0 14px",
-        }}
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          style={{ opacity: 0.5, flexShrink: 0 }}
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
-        </svg>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Part number, description, or component…"
-          autoComplete="off"
-          style={{
-            flex: 1,
-            minWidth: 0,
-            background: "none",
-            border: "none",
-            outline: "none",
-            color: "var(--ink)",
-            fontSize: 15,
-            padding: "12px 10px",
-            fontFamily: "var(--font-mono)",
-          }}
-        />
+      <div className="cat-searchbar-wrap">
+        <div className="cat-searchbar">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            style={{ opacity: 0.5, flexShrink: 0 }}
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setTaOpen(true);
+            }}
+            onFocus={() => setTaOpen(true)}
+            onBlur={() => window.setTimeout(() => setTaOpen(false), 120)}
+            onKeyDown={(e) => {
+              if (!taOpen || suggestions.length === 0) return;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setTaIdx((i) => Math.min(i + 1, suggestions.length - 1));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setTaIdx((i) => Math.max(i - 1, -1));
+              } else if (e.key === "Enter" && taIdx >= 0) {
+                e.preventDefault();
+                applySuggestion(suggestions[taIdx]);
+              } else if (e.key === "Escape") {
+                setTaOpen(false);
+              }
+            }}
+            placeholder="Part number, description, component, or model…"
+            autoComplete="off"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "none",
+              border: "none",
+              outline: "none",
+              color: "var(--ink)",
+              fontSize: 15,
+              padding: "12px 10px",
+              fontFamily: "var(--font-mono)",
+            }}
+          />
+          {q && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setQ("");
+                setTaOpen(false);
+              }}
+              style={{
+                border: "none",
+                background: "none",
+                color: "var(--ink-dim)",
+                cursor: "pointer",
+                fontSize: 13,
+                padding: "0 4px",
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {taOpen && suggestions.length > 0 && (
+          <div className="cat-ta" onMouseDown={(e) => e.preventDefault()}>
+            {(["part", "model", "component"] as const).map((kind) => {
+              const group = suggestions.filter((s) => s.kind === kind);
+              if (group.length === 0) return null;
+              const heading =
+                kind === "part" ? "Jump to part" : kind === "model" ? "Models" : "Components";
+              return (
+                <div key={kind}>
+                  <div className="cat-ta-group">{heading}</div>
+                  {group.map((s) => {
+                    const flat = suggestions.indexOf(s);
+                    return (
+                      <button
+                        type="button"
+                        key={`${s.kind}:${s.value}`}
+                        className="cat-ta-item"
+                        data-active={flat === taIdx}
+                        onMouseEnter={() => setTaIdx(flat)}
+                        onClick={() => applySuggestion(s)}
+                      >
+                        <span>{s.label}</span>
+                        {s.kind === "model" && <span className="sub">{s.sub}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* combination-lock picker — turn Year, then Family, then Model */}
-      <div className="fc-locks">
-        <Gear turns={turns} />
-        <LockDial
+      {/* filters — each pill narrows the next */}
+      <div className="cat-filters">
+        <FilterChip
           label="Year"
-          items={yearItems}
           value={year}
-          onChange={(v) => {
-            setYear(v);
-            bump();
-          }}
-          width={98}
+          valueLabel={year}
+          items={yearChoices}
+          onPick={setYear}
         />
-        <LockDial
-          label="Family"
-          items={familyItems}
-          value={family}
-          onChange={(v) => {
-            setFamily(v);
-            setModel("");
-            bump();
-          }}
-          width={150}
-        />
-        <LockDial
+        <FilterChip
           label="Model"
-          items={modelItems}
           value={model}
-          onChange={(v) => {
-            setModel(v);
-            bump();
-          }}
-          width={232}
-          grow
+          valueLabel={modelLabel(model)}
+          items={modelChoices}
+          onPick={setModel}
+          searchable
         />
-        <Gear turns={turns} flip />
+        <FilterChip
+          label="Family"
+          value={family}
+          valueLabel={family}
+          items={familyChoices}
+          onPick={setFamily}
+        />
         {(q || model || year || family) && (
           <button
             type="button"
-            className="fc-locks-clear"
+            className="cat-filters-clear"
             onClick={() => {
               setQ("");
               setModel("");
               setYear("");
               setFamily("");
-              bump();
             }}
           >
-            Clear
+            Clear all
           </button>
         )}
       </div>
@@ -542,7 +663,10 @@ export function CatalogSearch({ models }: { models: CatalogModel[] }) {
       </div>
 
       {idle && !data && (
-        <div style={emptyStyle}>Pick a model above, or start typing a part number, description, or component.</div>
+        <div style={emptyStyle}>
+          Start typing a part number, description, component, or model — or set the Year / Model
+          filters.
+        </div>
       )}
       {data && results.length === 0 && !loading && (
         <div style={emptyStyle}>No parts match that search.</div>
