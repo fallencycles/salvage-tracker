@@ -17,7 +17,10 @@ export const dynamic = "force-dynamic";
 // Only the parts catalog is exposed for now. The rest of the pipeline pages
 // (Overview, Intake, Teardown, …) still exist and work by URL — restore them
 // here when the operational side is ready.
-const NAV = [{ href: "/catalog", label: "Parts Catalog" }];
+const NAV = [
+  { href: "/catalog", label: "Parts Catalog" },
+  { href: "/inquiries", label: "Customer Inquiries" },
+];
 
 async function gatePassed(): Promise<boolean> {
   const password = process.env.APP_PASSWORD;
