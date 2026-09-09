@@ -237,6 +237,22 @@ async function main() {
   );
   if (junk.rowCount) console.log(`dropped ${junk.rowCount} fitment row(s) with an implausible model_year`);
 
+  // drop parse-error model_code rows: fragments of a description or colour name
+  // ("VR" from "vivid"), lowercase/punctuated scraps, and known-bad tokens that
+  // still look code-shaped (FXDRS = "FXDR S" mashed together). Real Harley codes
+  // are >= 3 chars of [A-Z0-9] plus "/" for combined listings (FLHTC/I).
+  const BAD_MODEL_CODES = ["FXDRS"];
+  const codeJunk = await db.query(
+    `delete from catalog_part_fitment
+      where model_code is null
+         or char_length(btrim(model_code)) < 3
+         or btrim(model_code) !~ '^[A-Z0-9][A-Z0-9/-]+$'
+         or btrim(model_code) = any($1::text[])
+      returning 1`,
+    [BAD_MODEL_CODES]
+  );
+  if (codeJunk.rowCount) console.log(`dropped ${codeJunk.rowCount} fitment row(s) with a junk model_code`);
+
   // recompute mv_part_fitment_ranges for every part number the batch touches
   const touched = [...new Set(parts.map((p) => p.part_no_normalized))];
   await db.query("delete from mv_part_fitment_ranges where part_no_normalized = any($1::text[])", [touched]);

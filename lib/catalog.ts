@@ -451,6 +451,9 @@ export async function catalogModels(): Promise<CatalogModel[]> {
       y0: number;
       y1: number;
     }>(
+      // A code shows in the picker if it has a curated name, or clears a small
+      // part-count bar — so the odd parse-noise code (a colour-name fragment,
+      // say) that slips through the importer never becomes a pickable "model".
       `select r.model_code, r.model_family, mn.name,
               min(r.year_start) as y0, max(r.year_end) as y1
          from mv_part_fitment_ranges r
@@ -458,6 +461,8 @@ export async function catalogModels(): Promise<CatalogModel[]> {
            on mn.model_code = r.model_code
           and mn.model_family is not distinct from r.model_family
         group by r.model_code, r.model_family, mn.name
+       having mn.name is not null
+           or count(distinct r.part_no_normalized) >= 20
         order by r.model_family, mn.name nulls last, r.model_code`
     );
     modelsCache = rows.map((r) => ({
