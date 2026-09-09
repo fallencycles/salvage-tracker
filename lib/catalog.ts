@@ -227,12 +227,12 @@ export async function searchCatalog({
       diagram_url: string | null;
       diagram_page: number | null;
     }>(
-      `select cp.part_no_normalized as n, cp.part_no, cp.component, cp.description, cp.page,
+      `select distinct cp.part_no_normalized as n, cp.part_no, cp.component, cp.description, cp.page,
               cp.source_catalog, cp.model_family, cp.international, cp.index_no,
               ci.image_url as diagram_url, ci.page as diagram_page
          from catalog_part cp
          left join catalog_component_image ci
-           on ci.catalog = regexp_replace(cp.source_catalog, '_parts\\.json$', '')
+           on ci.catalog || '_parts.json' = cp.source_catalog
           and ci.component = cp.component
         where cp.part_no_normalized = any($1::text[])`,
       [page]
@@ -369,7 +369,7 @@ export async function diagramParts(catalog: string, component: string): Promise<
   }>(
     `select index_no, part_no, part_no_normalized, description, page
        from catalog_part
-      where regexp_replace(source_catalog, '_parts\\.json$', '') = $1
+      where source_catalog = $1 || '_parts.json'
         and component = $2`,
     [catalog, component]
   );
@@ -429,17 +429,46 @@ export async function catalogStats(): Promise<{ parts: number; fitmentRanges: nu
   return statsCache;
 }
 
-let modelCodesCache: string[] | null = null;
+// Every (model code, family) with its friendly name and the year span it
+// covers — used to build a family-scoped model picker on the catalog page.
+export type CatalogModel = {
+  code: string;
+  family: string;
+  name: string | null;
+  year_start: number;
+  year_end: number;
+};
 
-export async function catalogModelCodes(): Promise<string[]> {
-  if (!modelCodesCache) {
+let modelsCache: CatalogModel[] | null = null;
+
+export async function catalogModels(): Promise<CatalogModel[]> {
+  if (!modelsCache) {
     const db = getDb();
-    const { rows } = await db.query<{ model_code: string }>(
-      "select distinct model_code from mv_part_fitment_ranges order by model_code"
+    const { rows } = await db.query<{
+      model_code: string;
+      model_family: string | null;
+      name: string | null;
+      y0: number;
+      y1: number;
+    }>(
+      `select r.model_code, r.model_family, mn.name,
+              min(r.year_start) as y0, max(r.year_end) as y1
+         from mv_part_fitment_ranges r
+         left join model_name mn
+           on mn.model_code = r.model_code
+          and mn.model_family is not distinct from r.model_family
+        group by r.model_code, r.model_family, mn.name
+        order by r.model_family, mn.name nulls last, r.model_code`
     );
-    modelCodesCache = rows.map((r) => r.model_code);
+    modelsCache = rows.map((r) => ({
+      code: r.model_code,
+      family: r.model_family ?? "Other",
+      name: r.name ?? null,
+      year_start: r.y0,
+      year_end: r.y1,
+    }));
   }
-  return modelCodesCache;
+  return modelsCache;
 }
 
 // Which of the canonical families (plus "Other") actually have parts, so the UI

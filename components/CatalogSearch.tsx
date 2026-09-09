@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type FitmentRange = {
   model_code: string;
@@ -187,12 +187,21 @@ function FamilyTag({ label }: { label: string }) {
 
 const YEAR_MIN = 1991;
 const YEAR_MAX = 2026;
+const ALL_YEARS = Array.from({ length: YEAR_MAX - YEAR_MIN + 1 }, (_, i) => YEAR_MAX - i);
+
+type CatalogModel = {
+  code: string;
+  family: string;
+  name: string | null;
+  year_start: number;
+  year_end: number;
+};
 
 export function CatalogSearch({
-  modelCodes,
+  models,
   familyCounts,
 }: {
-  modelCodes: string[];
+  models: CatalogModel[];
   familyCounts?: Record<string, number>;
 }) {
   const [q, setQ] = useState("");
@@ -256,6 +265,49 @@ export function CatalogSearch({
     }
   }, []);
 
+  // Model dropdown: scoped to the active family, else the whole list deduped by
+  // code (a few codes are reused across families). Labelled "CODE — Friendly name".
+  const modelOptions = useMemo(() => {
+    const scoped = family ? models.filter((m) => m.family === family) : models;
+    const seen = new Set<string>();
+    const out: CatalogModel[] = [];
+    for (const m of scoped) {
+      const key = family ? `${m.family}:${m.code}` : m.code;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(m);
+    }
+    return out.sort((a, b) =>
+      (a.name ?? a.code).localeCompare(b.name ?? b.code, undefined, { sensitivity: "base" })
+    );
+  }, [models, family]);
+
+  // Year dropdown: narrowed to the chosen model's span, or the family's overall
+  // span, so you can't pick a year with nothing behind it.
+  const yearOptions = useMemo(() => {
+    const picked = models.find(
+      (m) => m.code === model && (!family || m.family === family)
+    );
+    let lo = YEAR_MIN;
+    let hi = YEAR_MAX;
+    if (picked) {
+      lo = picked.year_start;
+      hi = picked.year_end;
+    } else if (family) {
+      const fam = models.filter((m) => m.family === family);
+      if (fam.length) {
+        lo = Math.min(...fam.map((m) => m.year_start));
+        hi = Math.max(...fam.map((m) => m.year_end));
+      }
+    }
+    return ALL_YEARS.filter((y) => y >= lo && y <= hi);
+  }, [models, model, family]);
+
+  // Drop a year that no longer fits the current model/family scope.
+  useEffect(() => {
+    if (year && !yearOptions.includes(Number(year))) setYear("");
+  }, [yearOptions, year]);
+
   const results = data?.results ?? [];
   const idle = !q.trim() && !model && !year && !family;
 
@@ -302,8 +354,9 @@ export function CatalogSearch({
         />
       </div>
 
-      {/* family filter buttons */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+      {/* step 1 — family */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "var(--ink-dim)", marginRight: 2 }}>Family:</span>
         {FAMILY_BUTTONS.map((f) => {
           const count = familyCounts?.[f] ?? 0;
           const disabled = count === 0;
@@ -314,7 +367,10 @@ export function CatalogSearch({
               active={active}
               disabled={disabled && !active}
               title={disabled ? `No ${f} parts yet` : `${count} model codes`}
-              onClick={() => setFamily(active ? "" : f)}
+              onClick={() => {
+                setFamily(active ? "" : f);
+                setModel("");
+              }}
             >
               {f}
             </Pill>
@@ -322,26 +378,41 @@ export function CatalogSearch({
         })}
       </div>
 
+      {/* step 2 — model + year, both scoped to the family picked above */}
       <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={model} onChange={(e) => setModel(e.target.value)} style={selectStyle}>
-          <option value="">All model codes</option>
-          {modelCodes.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <span style={{ fontSize: 12, color: "var(--ink-dim)" }}>fits year</span>
-        <input
-          type="number"
-          inputMode="numeric"
-          value={year}
-          onChange={(e) => setYear(e.target.value)}
-          placeholder="e.g. 2005"
-          min={YEAR_MIN}
-          max={YEAR_MAX}
-          style={{ ...selectStyle, width: 92, fontFamily: "var(--font-mono)" }}
-        />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--ink-dim)" }}>
+          Model
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            style={{ ...selectStyle, maxWidth: 280 }}
+          >
+            <option value="">{family ? `All ${family} models` : "Any model"}</option>
+            {modelOptions.map((m) => (
+              <option key={`${m.family}:${m.code}`} value={m.code}>
+                {m.name ? `${m.code} — ${m.name}` : m.code}
+                {!family ? ` (${m.family})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--ink-dim)" }}>
+          Year
+          <select
+            value={year}
+            onChange={(e) => setYear(e.target.value)}
+            style={{ ...selectStyle, width: 108, fontFamily: "var(--font-mono)" }}
+          >
+            <option value="">Any year</option>
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </label>
+
         {(model || year || q || family) && (
           <button
             onClick={() => {

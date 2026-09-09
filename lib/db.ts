@@ -22,7 +22,18 @@ function pgConfig(raw: string | undefined) {
 
 export function getDb(): Pool {
   if (!pool) {
-    pool = new Pool({ ...pgConfig(process.env.DATABASE_URL), max: 10 });
+    pool = new Pool({
+      ...pgConfig(process.env.DATABASE_URL),
+      max: 10,
+      // Keep sockets warm: the pooler sits in us-west-2, so a fresh TLS +
+      // auth handshake costs ~1s. Holding idle connections open makes the
+      // second and later searches in a session cheap.
+      idleTimeoutMillis: 30_000,
+      keepAlive: true,
+      // A runaway query should fail fast, not hang until the pooler drops
+      // the connection ten minutes later.
+      statement_timeout: 15_000,
+    });
   }
   return pool;
 }
