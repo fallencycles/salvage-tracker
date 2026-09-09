@@ -525,3 +525,102 @@ export async function catalogComponentIndex(): Promise<ComponentRow[]> {
   }
   return componentIndexCache;
 }
+
+// Roll the ~565 component sections up into a couple dozen systems for a
+// scan-in-one-screen view. First matching pattern wins, so the more specific /
+// "grab everything for this subsystem" rules (Sidecar, Wiring) come first.
+const CATEGORY_RULES: [string, RegExp][] = [
+  ["Sidecar", /SIDECAR/],
+  ["Wiring", /WIRING|WIRE HARNESS|HARNESS|MISCELLANEOUS ELECTRICAL|ELECTRICAL CADDY|ELECTRICAL CONTROL|CADDIES/],
+  ["Exhaust", /EXHAUST/],
+  ["Air Cleaner & Intake", /AIR CLEANER|ENRICHENER|ENRICHMENT|ACTIVE INTAKE/],
+  ["Cooling", /RADIATOR|COOLANT|COOLING SYSTEM|WATER PUMP|THERMOSTAT/],
+  ["Fuel Tank", /FUEL TANK|^CONSOLE|CONSOLE, FUEL|FUEL GAUGE|FUEL SENDER|SENDING UNIT/],
+  ["Fuel System", /CARBURETOR|FUEL PUMP|FUEL INJECT|INDUCTION MODULE|THROTTLE BODY|FUEL INDUCTION|EVAPORATIVE|CALIFORNIA EVAP/],
+  ["Lubrication", /OIL TANK|OIL PUMP|OIL FILTER|OIL PAN|OIL LINE|OIL COOLER/],
+  ["Ignition & Engine Controls", /ELECTRONIC CONTROL MODULE|\(ECM\)|IGNITION COIL|IGNITION MODULE|IGNITION SYSTEM|ELECTRONIC IGNITION|ENGINE SENSOR|SENSORS & SWITCHES|CAM POSITION|BANK ANGLE|CONTROL MODULE/],
+  ["Engine — Top End", /CYLINDER|VALVE|CAMSHAFT|CAM COVER|CAM GEAR|CAM & PINION|CAM DRIVE|ROCKER|PUSH ?ROD|PUSHROD|PISTON|CONNECTING ROD|FLYWHEEL|GEARCASE/],
+  ["Engine — Cases & Assembly", /CRANKCASE|ENGINE BALANCER|CRANKSHAFT|COMPLETE ENGINE|ENGINE ASSEMBLY|^ENGINE|COSMETIC COVER/],
+  ["Clutch & Primary", /CLUTCH|PRIMARY HOUSING|PRIMARY COVER|ACCESS DOOR|INSPECTION COVER/],
+  ["Transmission", /TRANSMISSION|SHIFTER/],
+  ["Final Drive", /BELT|CHAIN|SPROCKET/],
+  ["Charging & Starting", /BATTERY|ALTERNATOR|REGULATOR|STARTER/],
+  ["Switches & Cruise Control", /SWITCH|CIRCUIT BREAKER|CRUISE CONTROL|TURN SIGNAL MODULE/],
+  ["Lighting", /HEADLAMP|HEADLIGHT|TAIL LAMP|TAIL LIGHT|TURN SIGNAL|LICENSE PLATE|MARKER LIGHT|FOG LAMP|PASSING LAMP|PURSUIT LAMP|STROBE LAMP|AUXILIARY LAMP|AUXILIARY\/FOG|NACELLE|LAMPS &/],
+  ["Instruments & Audio", /INSTRUMENT|SPEEDOMETER|TACHOMETER|SOUND SYSTEM|RADIO|ANTENNA|SPEAKER|INTERCOM|C\.?B\.? &|AMPLIFIER|INFOTAINMENT|AUDIO|MICROPHONE|HORN|SIREN|GARAGE DOOR|GAUGES/],
+  ["Front Fork & Steering", /FRONT FORK|FORK, FRONT|FORK BRACKET|FORK ROCKER|STEERING HEAD/],
+  ["Rear Suspension", /SHOCK ABSORBER|REAR FORK|FORK, REAR|FORK REAR|AIR SUSPENSION|SWINGARM/],
+  ["Wheels & Brakes", /WHEEL|BRAKE/],
+  ["Fenders", /FENDER/],
+  ["Fairing & Windshield", /FAIRING|WINDSHIELD|SPEED SCREEN/],
+  ["Saddlebags & Luggage", /SADDLEBAG|LUGGAGE|TOUR.?PAK/],
+  ["Seats & Backrests", /SEAT|SISSY BAR|BACKREST/],
+  ["Handlebar & Mirrors", /HANDLEBAR|THROTTLE CONTROL|RISER|MIRROR/],
+  ["Footrests & Floorboards", /FOOTREST|FOOTBOARD|FOOTPEG/],
+  ["Frame", /FRAME|JIFFY STAND/],
+  ["Trim, Covers & Labels", /SIDE COVER|AIR DEFLECTOR|COSMETIC COVER|CHIN SPOILER|LABEL|WARNING|DECAL|COVERS &|SAREE/],
+  ["Hardware & Misc", /LOOSE PARTS|MISCELLANEOUS/],
+];
+
+// Front-of-bike / engine-out reading order for display (match order above is a
+// separate concern).
+const CATEGORY_ORDER = [
+  "Engine — Top End",
+  "Engine — Cases & Assembly",
+  "Lubrication",
+  "Cooling",
+  "Air Cleaner & Intake",
+  "Fuel System",
+  "Fuel Tank",
+  "Exhaust",
+  "Clutch & Primary",
+  "Transmission",
+  "Final Drive",
+  "Ignition & Engine Controls",
+  "Charging & Starting",
+  "Wiring",
+  "Switches & Cruise Control",
+  "Lighting",
+  "Instruments & Audio",
+  "Front Fork & Steering",
+  "Rear Suspension",
+  "Wheels & Brakes",
+  "Frame",
+  "Handlebar & Mirrors",
+  "Footrests & Floorboards",
+  "Seats & Backrests",
+  "Fenders",
+  "Fairing & Windshield",
+  "Saddlebags & Luggage",
+  "Trim, Covers & Labels",
+  "Sidecar",
+  "Hardware & Misc",
+  "Other",
+];
+
+export type ComponentCategory = {
+  label: string;
+  parts: number;
+  members: ComponentRow[];
+};
+
+export async function catalogComponentCategories(): Promise<ComponentCategory[]> {
+  const heads = await catalogComponentIndex();
+  const bucket = new Map<string, ComponentRow[]>();
+  for (const h of heads) {
+    let label = "Other";
+    for (const [l, rx] of CATEGORY_RULES) {
+      if (rx.test(h.name)) {
+        label = l;
+        break;
+      }
+    }
+    let arr = bucket.get(label);
+    if (!arr) bucket.set(label, (arr = []));
+    arr.push(h);
+  }
+  return CATEGORY_ORDER.filter((l) => bucket.has(l)).map((label) => {
+    const members = bucket.get(label)!.slice().sort((a, b) => b.parts - a.parts || a.name.localeCompare(b.name));
+    return { label, members, parts: members.reduce((n, m) => n + m.parts, 0) };
+  });
+}

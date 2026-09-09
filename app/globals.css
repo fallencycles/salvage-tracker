@@ -416,16 +416,55 @@ a {
 }
 
 /* ---- catalog: component index ---- */
+.ci-cat {
+  border-bottom: 1px solid var(--border);
+}
+.ci-cat-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 8px;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.ci-cat-caret {
+  flex-shrink: 0;
+  color: var(--ink-dim);
+  font-size: 10px;
+  transition: transform 0.12s;
+}
+.ci-cat-caret[data-open="true"] {
+  transform: rotate(90deg);
+}
+.ci-cat-name {
+  flex: 1;
+  font-weight: 600;
+}
+.ci-cat-count {
+  flex-shrink: 0;
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.ci-cat-body {
+  padding: 2px 0 10px 20px;
+}
 .ci-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 14px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   border-radius: 6px;
   text-decoration: none;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 .ci-row:hover {
   background: var(--panel);
