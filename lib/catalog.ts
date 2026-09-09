@@ -480,11 +480,17 @@ export async function catalogModels(): Promise<CatalogModel[]> {
 // search-bar typeahead. ~600 short strings — sent to the client once.
 let componentsCache: string[] | null = null;
 
+// Normalized component head: the text before the first " - " qualifier,
+// upper-cased, with " AND " folded to " & " so the era-to-era spelling variants
+// ("AIR CLEANER AND ENRICHENER" / "... & ENRICHENER") collapse to one entry.
+const COMPONENT_HEAD_SQL =
+  "upper(regexp_replace(regexp_replace(btrim(split_part(component, ' - ', 1)), '\\s+AND\\s+', ' & ', 'g'), '\\s{2,}', ' ', 'g'))";
+
 export async function catalogComponents(): Promise<string[]> {
   if (!componentsCache) {
     const db = getDb();
     const { rows } = await db.query<{ c: string }>(
-      `select distinct btrim(split_part(component, ' - ', 1)) as c
+      `select distinct ${COMPONENT_HEAD_SQL} as c
          from catalog_part
         where component is not null and btrim(component) <> ''
         order by c`
@@ -492,4 +498,30 @@ export async function catalogComponents(): Promise<string[]> {
     componentsCache = rows.map((r) => r.c).filter(Boolean);
   }
   return componentsCache;
+}
+
+// The same normalized component names, with how many distinct parts and how many
+// catalogs each one spans — for the browsable /catalog/components index.
+export type ComponentRow = { name: string; parts: number; catalogs: number };
+let componentIndexCache: ComponentRow[] | null = null;
+
+export async function catalogComponentIndex(): Promise<ComponentRow[]> {
+  if (!componentIndexCache) {
+    const db = getDb();
+    const { rows } = await db.query<{ name: string; parts: string; catalogs: string }>(
+      `select ${COMPONENT_HEAD_SQL} as name,
+              count(distinct part_no_normalized) as parts,
+              count(distinct source_catalog) as catalogs
+         from catalog_part
+        where component is not null and btrim(component) <> ''
+        group by 1
+        order by 1`
+    );
+    componentIndexCache = rows.map((r) => ({
+      name: r.name,
+      parts: Number(r.parts),
+      catalogs: Number(r.catalogs),
+    }));
+  }
+  return componentIndexCache;
 }

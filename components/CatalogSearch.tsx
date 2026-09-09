@@ -322,6 +322,12 @@ export function CatalogSearch({
     []
   );
 
+  // Deep link: /catalog?q=FUEL+TANK (e.g. from the component index) seeds the box.
+  useEffect(() => {
+    const seed = new URLSearchParams(window.location.search).get("q");
+    if (seed) setQ(seed);
+  }, []);
+
   useEffect(() => {
     const t = setTimeout(() => run(q, model, year, family), 180);
     return () => clearTimeout(t);

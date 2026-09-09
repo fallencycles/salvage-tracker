@@ -415,6 +415,22 @@ a {
   font-size: 12px;
 }
 
+/* ---- catalog: component index ---- */
+.ci-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.ci-row:hover {
+  background: var(--panel);
+}
+
 .stock-tag {
   font-family: var(--font-mono);
   font-weight: 600;

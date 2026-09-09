@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CatalogSearch } from "@/components/CatalogSearch";
 import { catalogComponents, catalogModels, catalogStats } from "@/lib/catalog";
 
@@ -31,9 +32,12 @@ export default async function CatalogPage() {
           {stats.parts.toLocaleString()} parts · {stats.fitmentRanges.toLocaleString()} fitment ranges
         </div>
       </div>
-      <p style={{ color: "var(--ink-dim)", marginTop: 0, marginBottom: 20, fontSize: 14 }}>
+      <p style={{ color: "var(--ink-dim)", marginTop: 0, marginBottom: 14, fontSize: 14 }}>
         Reference lookup — Harley part numbers, the components they belong to, and the
-        models and years each one fits.
+        models and years each one fits.{" "}
+        <Link href="/catalog/components" style={{ color: "var(--tag-yellow)", textDecoration: "none" }}>
+          Browse all components →
+        </Link>
       </p>
       <CatalogSearch models={models} components={components} />
     </div>
