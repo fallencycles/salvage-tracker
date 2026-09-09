@@ -36,16 +36,19 @@ export default async function ComponentsPage() {
         </div>
       </div>
       <p style={{ color: "var(--ink-dim)", marginTop: 0, marginBottom: 16, fontSize: 14 }}>
-        Every component section across the catalog, rolled up into systems.
+        Every component section across the catalog, rolled up into systems. Pick one to filter
+        the catalog to its parts.
       </p>
 
       <div>
         {categories.map((c) => (
-          <div key={c.label} className="ci-cat-line">
+          <Link
+            key={c.label}
+            href={`/catalog?cat=${encodeURIComponent(c.label)}`}
+            className="ci-cat-line"
+          >
             <span className="ci-cat-name">{c.label}</span>
-            <span className="ci-cat-dots" aria-hidden />
-            <span className="ci-cat-count">{c.parts.toLocaleString()}</span>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

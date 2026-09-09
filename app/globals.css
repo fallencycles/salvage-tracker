@@ -420,24 +420,20 @@ a {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 9px 4px;
+  padding: 11px 8px;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.ci-cat-line:hover {
+  background: var(--panel);
+}
+.ci-cat-line:hover .ci-cat-name {
+  color: var(--tag-yellow);
 }
 .ci-cat-name {
-  flex-shrink: 0;
   font-weight: 600;
-}
-.ci-cat-dots {
-  flex: 1;
-  border-bottom: 1px dotted var(--border);
-  transform: translateY(-3px);
-}
-.ci-cat-count {
-  flex-shrink: 0;
-  color: var(--ink-dim);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
 }
 
 .stock-tag {

@@ -278,14 +278,17 @@ type Suggestion =
 export function CatalogSearch({
   models,
   components,
+  categories = [],
 }: {
   models: CatalogModel[];
   components: string[];
+  categories?: string[];
 }) {
   const [q, setQ] = useState("");
   const [model, setModel] = useState("");
   const [year, setYear] = useState("");
   const [family, setFamily] = useState("");
+  const [category, setCategory] = useState("");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [stack, setStack] = useState<CatalogResult[]>([]);
@@ -296,8 +299,8 @@ export function CatalogSearch({
   const reqId = useRef(0);
 
   const run = useCallback(
-    async (qv: string, modelv: string, yearv: string, familyv: string) => {
-      if (!qv.trim() && !modelv && !yearv && !familyv) {
+    async (qv: string, modelv: string, yearv: string, familyv: string, categoryv: string) => {
+      if (!qv.trim() && !modelv && !yearv && !familyv && !categoryv) {
         setData(null);
         setLoading(false);
         return;
@@ -309,6 +312,7 @@ export function CatalogSearch({
       if (modelv) params.set("model", modelv);
       if (yearv) params.set("year", yearv);
       if (familyv) params.set("family", familyv);
+      if (categoryv) params.set("cat", categoryv);
       try {
         const res = await fetch(`/api/catalog/search?${params.toString()}`);
         const json = (await res.json()) as SearchResponse;
@@ -322,16 +326,20 @@ export function CatalogSearch({
     []
   );
 
-  // Deep link: /catalog?q=FUEL+TANK (e.g. from the component index) seeds the box.
+  // Deep links: /catalog?q=… seeds the box; /catalog?cat=Fenders (from the
+  // systems overview) preselects the System filter.
   useEffect(() => {
-    const seed = new URLSearchParams(window.location.search).get("q");
+    const sp = new URLSearchParams(window.location.search);
+    const seed = sp.get("q");
     if (seed) setQ(seed);
+    const cat = sp.get("cat");
+    if (cat) setCategory(cat);
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => run(q, model, year, family), 180);
+    const t = setTimeout(() => run(q, model, year, family, category), 180);
     return () => clearTimeout(t);
-  }, [q, model, year, family, run]);
+  }, [q, model, year, family, category, run]);
 
   useEffect(() => {
     if (!selected) return;
@@ -500,7 +508,7 @@ export function CatalogSearch({
   };
 
   const results = data?.results ?? [];
-  const idle = !q.trim() && !model && !year && !family;
+  const idle = !q.trim() && !model && !year && !family && !category;
 
   return (
     <div>
@@ -634,7 +642,17 @@ export function CatalogSearch({
           items={familyChoices}
           onPick={setFamily}
         />
-        {(q || model || year || family) && (
+        {categories.length > 0 && (
+          <FilterChip
+            label="System"
+            value={category}
+            valueLabel={category}
+            items={categories.map((c) => ({ value: c, label: c }))}
+            onPick={setCategory}
+            searchable
+          />
+        )}
+        {(q || model || year || family || category) && (
           <button
             type="button"
             className="cat-filters-clear"
@@ -643,6 +661,7 @@ export function CatalogSearch({
               setModel("");
               setYear("");
               setFamily("");
+              setCategory("");
             }}
           >
             Clear all

@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { CatalogSearch } from "@/components/CatalogSearch";
-import { catalogComponents, catalogModels, catalogStats } from "@/lib/catalog";
+import {
+  catalogCategoryLabels,
+  catalogComponents,
+  catalogModels,
+  catalogStats,
+} from "@/lib/catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,10 +15,11 @@ export const metadata = {
 };
 
 export default async function CatalogPage() {
-  const [stats, models, components] = await Promise.all([
+  const [stats, models, components, categories] = await Promise.all([
     catalogStats(),
     catalogModels(),
     catalogComponents(),
+    catalogCategoryLabels(),
   ]);
 
   return (
@@ -39,7 +45,7 @@ export default async function CatalogPage() {
           Browse all components →
         </Link>
       </p>
-      <CatalogSearch models={models} components={components} />
+      <CatalogSearch models={models} components={components} categories={categories} />
     </div>
   );
 }

@@ -79,6 +79,7 @@ export type CatalogSearchParams = {
   model?: string | null;
   year?: number | null;
   family?: string | null;
+  category?: string | null;
 };
 
 // Turn a family filter into a SQL fragment + params against a table aliased `t`
@@ -97,6 +98,7 @@ export async function searchCatalog({
   model,
   year,
   family,
+  category,
 }: CatalogSearchParams): Promise<CatalogSearchResponse> {
   const db = getDb();
   const text = (q ?? "").trim();
@@ -105,6 +107,22 @@ export async function searchCatalog({
   const modelArg = model || null;
   const yearArg = year ?? null;
   const familyArg = family || null;
+  // A system filter ("Fenders", "Wiring", …) resolves to the set of component
+  // heads that roll up into it.
+  const catHeads = await categoryHeads(category);
+
+  const filterByCategory = async (cands: string[]): Promise<string[]> => {
+    if (!catHeads || cands.length === 0) return cands;
+    const { rows } = await db.query<{ n: string }>(
+      `select distinct part_no_normalized as n
+         from catalog_part
+        where part_no_normalized = any($1::text[])
+          and ${COMPONENT_HEAD_SQL} = any($2::text[])`,
+      [cands, catHeads]
+    );
+    const keep = new Set(rows.map((r) => r.n));
+    return cands.filter((n) => keep.has(n));
+  };
 
   // score: lower is better. Exact/prefix part-number hits beat full-text
   // relevance, which is ordered by ts_rank_cd (higher = better, so negated).
@@ -159,23 +177,39 @@ export async function searchCatalog({
 
   if (!text) {
     // No query text — browse by family/model/year straight from the ranges.
-    if (!modelArg && !yearArg && !familyArg) {
+    if (!modelArg && !yearArg && !familyArg && !catHeads) {
       return { results: [], total: 0, truncated: false };
     }
-    const fam = familyClause(familyArg, 3);
-    const { rows } = await db.query<{ n: string }>(
-      `select n from (
-         select distinct t.part_no_normalized as n
-           from mv_part_fitment_ranges t
-          where ($1::text is null or t.model_code = $1)
-            and ($2::int is null or (t.year_start <= $2 and t.year_end >= $2))
-            ${fam ? `and ${fam.sql}` : ""}
-       ) s
-       order by length(n), n
-       limit 4000`,
-      [modelArg, yearArg, ...(fam?.args ?? [])]
-    );
-    candidates = rows.map((r) => r.n);
+    if (modelArg || yearArg || familyArg) {
+      const fam = familyClause(familyArg, 3);
+      const { rows } = await db.query<{ n: string }>(
+        `select n from (
+           select distinct t.part_no_normalized as n
+             from mv_part_fitment_ranges t
+            where ($1::text is null or t.model_code = $1)
+              and ($2::int is null or (t.year_start <= $2 and t.year_end >= $2))
+              ${fam ? `and ${fam.sql}` : ""}
+         ) s
+         order by length(n), n
+         limit 4000`,
+        [modelArg, yearArg, ...(fam?.args ?? [])]
+      );
+      candidates = rows.map((r) => r.n);
+      candidates = await filterByCategory(candidates);
+    } else {
+      // System filter on its own — source straight from catalog_part.
+      const { rows } = await db.query<{ n: string }>(
+        `select n from (
+           select distinct part_no_normalized as n
+             from catalog_part
+            where ${COMPONENT_HEAD_SQL} = any($1::text[])
+         ) s
+         order by length(n), n
+         limit 4000`,
+        [catHeads]
+      );
+      candidates = rows.map((r) => r.n);
+    }
   } else {
     candidates = [...scored.keys()];
   }
@@ -197,6 +231,11 @@ export async function searchCatalog({
     );
     const keep = new Set(rows.map((r) => r.n));
     candidates = candidates.filter((n) => keep.has(n));
+  }
+
+  // System filter for the text-search path (browse-only paths handled above).
+  if (text) {
+    candidates = await filterByCategory(candidates);
   }
 
   const filteredTotal = candidates.length;
@@ -623,4 +662,17 @@ export async function catalogComponentCategories(): Promise<ComponentCategory[]>
     const members = bucket.get(label)!.slice().sort((a, b) => b.parts - a.parts || a.name.localeCompare(b.name));
     return { label, members, parts: members.reduce((n, m) => n + m.parts, 0) };
   });
+}
+
+// The ordered list of system labels, for the /catalog "System" filter.
+export async function catalogCategoryLabels(): Promise<string[]> {
+  return (await catalogComponentCategories()).map((c) => c.label);
+}
+
+// Resolve a system label to the component heads that roll up into it, so
+// searchCatalog can filter parts by system.
+async function categoryHeads(label: string | null | undefined): Promise<string[] | null> {
+  if (!label) return null;
+  const hit = (await catalogComponentCategories()).find((c) => c.label === label);
+  return hit && hit.members.length > 0 ? hit.members.map((m) => m.name) : null;
 }

@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
   const q = sp.get("q");
   const model = sp.get("model");
   const family = sp.get("family");
+  const category = sp.get("cat");
   const yearRaw = sp.get("year");
   const year = yearRaw ? parseInt(yearRaw, 10) : null;
 
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest) {
       q,
       model,
       family,
+      category,
       year: year && !Number.isNaN(year) ? year : null,
     });
     return NextResponse.json(data);
