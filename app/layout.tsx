@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { createHash } from "node:crypto";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "Fallen Cycles",
@@ -47,6 +48,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         ) : (
           children
         )}
+        <Analytics />
       </body>
     </html>
   );
