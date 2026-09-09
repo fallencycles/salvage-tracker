@@ -29,6 +29,9 @@ type CatalogResult = {
   component: string | null;
   model_count: number;
   families: string[];
+  // summaries on a search row; the arrays are empty until the modal loads detail
+  occ_count: number;
+  has_diagram: boolean;
   occurrences: CatalogOccurrence[];
   fitment: FitmentRange[];
 };
@@ -292,6 +295,7 @@ export function CatalogSearch({
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [stack, setStack] = useState<CatalogResult[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [taOpen, setTaOpen] = useState(false);
   const [taIdx, setTaIdx] = useState(-1);
   const selected = stack[stack.length - 1] ?? null;
@@ -348,14 +352,21 @@ export function CatalogSearch({
     return () => window.removeEventListener("keydown", onKey);
   }, [selected]);
 
-  const openPartByNo = useCallback(async (partNo: string) => {
+  // Search rows carry summaries only — fetch a part's full occurrences + fitment
+  // when its modal opens. `replace` for a row click, push for a diagram
+  // drill-down.
+  const openPart = useCallback(async (partNo: string, replace = false) => {
+    setDetailLoading(true);
     try {
-      const res = await fetch(`/api/catalog/search?q=${encodeURIComponent(partNo)}`);
-      const json = (await res.json()) as SearchResponse;
-      const hit = json.results?.find((r) => r.part_no === partNo) ?? json.results?.[0] ?? null;
-      if (hit) setStack((s) => [...s, hit]);
+      const res = await fetch(`/api/catalog/part?no=${encodeURIComponent(partNo)}`);
+      if (res.ok) {
+        const detail = (await res.json()) as CatalogResult;
+        setStack((s) => (replace ? [detail] : [...s, detail]));
+      }
     } catch {
       /* ignore */
+    } finally {
+      setDetailLoading(false);
     }
   }, []);
 
@@ -497,7 +508,7 @@ export function CatalogSearch({
   const applySuggestion = (s: Suggestion) => {
     setTaOpen(false);
     if (s.kind === "part") {
-      openPartByNo(s.value.trim());
+      openPart(s.value.trim(), true);
       setQ("");
     } else if (s.kind === "model") {
       setModel(s.value);
@@ -699,19 +710,22 @@ export function CatalogSearch({
 
       <div>
         {results.map((r) => {
-          const hasDiagram = r.occurrences.some((o) => o.diagram_url);
           return (
-            <div key={r.part_no_normalized} className="cat-row" onClick={() => setStack([r])}>
+            <div
+              key={r.part_no_normalized}
+              className="cat-row"
+              onClick={() => openPart(r.part_no, true)}
+            >
               <div className="cat-row-no">{r.part_no}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={ellipsis}>{r.description || "—"}</div>
                 <div style={{ ...ellipsis, fontSize: 12, color: "var(--ink-dim)", marginTop: 2 }}>
                   {r.component || ""}
-                  {r.occurrences.length > 1 ? ` +${r.occurrences.length - 1} more` : ""}
+                  {r.occ_count > 1 ? ` +${r.occ_count - 1} more` : ""}
                 </div>
               </div>
               <div className="cat-row-meta">
-                {hasDiagram && (
+                {r.has_diagram && (
                   <span title="Has exploded-view diagram" style={{ color: "var(--ink-dim)" }}>
                     ▦
                   </span>
@@ -741,9 +755,19 @@ export function CatalogSearch({
           result={selected}
           canBack={stack.length > 1}
           onBack={() => setStack((s) => s.slice(0, -1))}
-          onOpenPart={openPartByNo}
+          onOpenPart={(pn) => openPart(pn)}
           onClose={() => setStack([])}
         />
+      )}
+      {detailLoading && !selected && (
+        <div className="cat-modal-scrim">
+          <div
+            className="cat-modal"
+            style={{ padding: 40, textAlign: "center", color: "var(--ink-dim)", fontSize: 14 }}
+          >
+            Loading part…
+          </div>
+        </div>
       )}
     </div>
   );

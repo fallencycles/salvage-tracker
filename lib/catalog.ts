@@ -39,6 +39,11 @@ export type CatalogResult = {
   component: string | null;
   model_count: number;
   families: string[];
+  // In search results these two are summaries only (the row UI needs no more);
+  // `occurrences` / `fitment` arrive empty and are filled by catalogPartDetail
+  // when a part's modal is opened.
+  occ_count: number;
+  has_diagram: boolean;
   occurrences: CatalogOccurrence[];
   fitment: FitmentRange[];
 };
@@ -252,9 +257,76 @@ export async function searchCatalog({
   const truncated = filteredTotal > RESULT_LIMIT;
   const page = candidates.slice(0, RESULT_LIMIT);
 
-  const [occ, fit] = await Promise.all([
+  // The result list only needs summaries per part — a preview description /
+  // component, how many occurrences ("+N more"), whether any has a diagram, the
+  // model count and families. Full occurrence + fitment arrays (megabytes for a
+  // broad browse) are fetched per part by catalogPartDetail when its modal opens.
+  const [meta, fits] = await Promise.all([
     db.query<{
       n: string;
+      part_no: string | null;
+      description: string | null;
+      component: string | null;
+      occ_count: string;
+      has_diagram: boolean;
+    }>(
+      `select cp.part_no_normalized as n,
+              min(cp.part_no) as part_no,
+              min(cp.description) as description,
+              min(cp.component) as component,
+              count(distinct (cp.component, cp.description, cp.page, cp.source_catalog)) as occ_count,
+              bool_or(ci.image_url is not null) as has_diagram
+         from catalog_part cp
+         left join catalog_component_image ci
+           on ci.catalog || '_parts.json' = cp.source_catalog
+          and ci.component = cp.component
+        where cp.part_no_normalized = any($1::text[])
+        group by cp.part_no_normalized`,
+      [page]
+    ),
+    db.query<{ n: string; model_count: string; families: string[] | null }>(
+      `select r.part_no_normalized as n,
+              count(distinct r.model_code) as model_count,
+              array_agg(distinct r.model_family) filter (where r.model_family is not null) as families
+         from mv_part_fitment_ranges r
+        where r.part_no_normalized = any($1::text[])
+        group by r.part_no_normalized`,
+      [page]
+    ),
+  ]);
+
+  const metaByN = new Map(meta.rows.map((r) => [r.n, r]));
+  const fitByN = new Map(fits.rows.map((r) => [r.n, r]));
+
+  const results: CatalogResult[] = page.map((n) => {
+    const m = metaByN.get(n);
+    const f = fitByN.get(n);
+    return {
+      part_no: m?.part_no || n,
+      part_no_normalized: n,
+      description: m?.description ?? null,
+      component: m?.component ?? null,
+      model_count: f ? Number(f.model_count) : 0,
+      families: [...(f?.families ?? [])].sort((a, b) => a.localeCompare(b)),
+      occ_count: m ? Number(m.occ_count) : 0,
+      has_diagram: m?.has_diagram === true,
+      occurrences: [],
+      fitment: [],
+    };
+  });
+
+  return { results, total: filteredTotal, truncated };
+}
+
+// Full occurrence + fitment detail for a single part — what a part's modal
+// needs, fetched only when it opens.
+export async function catalogPartDetail(partNoRaw: string): Promise<CatalogResult | null> {
+  const db = getDb();
+  const norm = normalizePartNo(partNoRaw);
+  if (norm.length < 2) return null;
+
+  const [occ, fit] = await Promise.all([
+    db.query<{
       part_no: string;
       component: string | null;
       description: string | null;
@@ -266,63 +338,55 @@ export async function searchCatalog({
       diagram_url: string | null;
       diagram_page: number | null;
     }>(
-      `select distinct cp.part_no_normalized as n, cp.part_no, cp.component, cp.description, cp.page,
+      `select distinct cp.part_no, cp.component, cp.description, cp.page,
               cp.source_catalog, cp.model_family, cp.international, cp.index_no,
               ci.image_url as diagram_url, ci.page as diagram_page
          from catalog_part cp
          left join catalog_component_image ci
            on ci.catalog || '_parts.json' = cp.source_catalog
           and ci.component = cp.component
-        where cp.part_no_normalized = any($1::text[])`,
-      [page]
+        where cp.part_no_normalized = $1`,
+      [norm]
     ),
     db.query<{
-      n: string;
       model_code: string;
       model_family: string | null;
       model_name: string | null;
       year_start: number;
       year_end: number;
     }>(
-      `select r.part_no_normalized as n, r.model_code, r.model_family, mn.name as model_name,
-              r.year_start, r.year_end
+      `select r.model_code, r.model_family, mn.name as model_name, r.year_start, r.year_end
          from mv_part_fitment_ranges r
          left join model_name mn
            on mn.model_code = r.model_code
           and mn.model_family is not distinct from r.model_family
-        where r.part_no_normalized = any($1::text[])
+        where r.part_no_normalized = $1
         order by r.model_code, r.year_start`,
-      [page]
+      [norm]
     ),
   ]);
 
-  const byNorm = new Map<string, CatalogResult>();
-  for (const n of page) {
-    byNorm.set(n, {
-      part_no: n,
-      part_no_normalized: n,
-      description: null,
-      component: null,
-      model_count: 0,
-      families: [],
-      occurrences: [],
-      fitment: [],
-    });
-  }
+  if (occ.rows.length === 0 && fit.rows.length === 0) return null;
 
-  const seenOcc = new Map<string, Set<string>>();
+  const entry: CatalogResult = {
+    part_no: norm,
+    part_no_normalized: norm,
+    description: null,
+    component: null,
+    model_count: 0,
+    families: [],
+    occ_count: 0,
+    has_diagram: false,
+    occurrences: [],
+    fitment: [],
+  };
+
+  const seenOcc = new Set<string>();
   for (const row of occ.rows) {
-    const entry = byNorm.get(row.n);
-    if (!entry) continue;
-    entry.part_no = row.part_no || entry.part_no;
+    if (row.part_no) entry.part_no = row.part_no;
     const key = `${row.component}|${row.description}|${row.page}|${row.source_catalog}`;
-    let seen = seenOcc.get(row.n);
-    if (!seen) {
-      seen = new Set();
-      seenOcc.set(row.n, seen);
-    }
-    if (!seen.has(key)) {
-      seen.add(key);
+    if (!seenOcc.has(key)) {
+      seenOcc.add(key);
       entry.occurrences.push({
         component: row.component,
         description: row.description,
@@ -337,13 +401,18 @@ export async function searchCatalog({
     }
     if (!entry.description && row.description) entry.description = row.description;
     if (!entry.component && row.component) entry.component = row.component;
+    if (row.diagram_url) entry.has_diagram = true;
   }
+  entry.occurrences.sort(
+    (a, b) =>
+      (a.component ?? "").localeCompare(b.component ?? "") ||
+      (a.source_catalog ?? "").localeCompare(b.source_catalog ?? "")
+  );
+  entry.occ_count = entry.occurrences.length;
 
-  const models = new Map<string, Set<string>>();
-  const famsByNorm = new Map<string, Set<string>>();
+  const codes = new Set<string>();
+  const fams = new Set<string>();
   for (const row of fit.rows) {
-    const entry = byNorm.get(row.n);
-    if (!entry) continue;
     entry.fitment.push({
       model_code: row.model_code,
       model_family: row.model_family,
@@ -351,47 +420,13 @@ export async function searchCatalog({
       year_start: row.year_start,
       year_end: row.year_end,
     });
-    let set = models.get(row.n);
-    if (!set) {
-      set = new Set();
-      models.set(row.n, set);
-    }
-    set.add(row.model_code);
-    if (row.model_family) {
-      let fs = famsByNorm.get(row.n);
-      if (!fs) {
-        fs = new Set();
-        famsByNorm.set(row.n, fs);
-      }
-      fs.add(row.model_family);
-    }
+    codes.add(row.model_code);
+    if (row.model_family) fams.add(row.model_family);
   }
-  for (const [n, set] of models) {
-    const entry = byNorm.get(n);
-    if (entry) entry.model_count = set.size;
-  }
-  const famOrder = (f: string) => {
-    const i = (MODEL_FAMILIES as readonly string[]).indexOf(f);
-    return i === -1 ? MODEL_FAMILIES.length : i;
-  };
-  for (const [n, fs] of famsByNorm) {
-    const entry = byNorm.get(n);
-    if (entry) entry.families = [...fs].sort((a, b) => famOrder(a) - famOrder(b) || a.localeCompare(b));
-  }
+  entry.model_count = codes.size;
+  entry.families = [...fams].sort((a, b) => a.localeCompare(b));
 
-  for (const entry of byNorm.values()) {
-    entry.occurrences.sort(
-      (a, b) =>
-        (a.component ?? "").localeCompare(b.component ?? "") ||
-        (a.source_catalog ?? "").localeCompare(b.source_catalog ?? "")
-    );
-  }
-
-  return {
-    results: page.map((n) => byNorm.get(n)!),
-    total: filteredTotal,
-    truncated,
-  };
+  return entry;
 }
 
 // Every part on one exploded-view diagram, so a viewer can read off any callout
