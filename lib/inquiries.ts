@@ -481,3 +481,79 @@ export function inquiriesToCsv(list: InquiryWithParts[]): string {
   // Trailing newline so the file ends cleanly; BOM so Excel reads UTF-8.
   return "﻿" + lines.join("\r\n") + "\r\n";
 }
+
+// ---- Reports ---------------------------------------------------------------
+
+export type InquiryStats = {
+  openCount: number;
+  closedCount: number;
+  totalCount: number;
+  loggedLast7Days: number;
+  openPartsCount: number;
+  topParts: { label: string; count: number }[];
+};
+
+// Group requested parts into a "what do people keep asking for" leaderboard.
+//
+// Every part row is guaranteed to have an oem_part_number or a description (or
+// both) — normalizeParts drops rows with neither before they're ever saved.
+//
+// TODO(human): implement topRequestedParts.
+//   - Group key: prefer the part number when present (upper-cased, trimmed —
+//     so "61300123" and "61300123 " don't split into two buckets), otherwise
+//     fall back to the description (lower-cased/trimmed, so casing doesn't
+//     fragment the count). Two different descriptions must never collapse into
+//     one bucket just because both lack a part number.
+//   - Label: what the report shows for that bucket. If the part number is the
+//     key, prefer "<part_no> — <description>" when a description is present on
+//     at least one row in the bucket, else just the part number. If the
+//     description is the key (no part number on any row in the bucket), show
+//     the description as typed (not the lower-cased key).
+//   - Count occurrences per bucket, sort descending by count, return the top
+//     `limit`.
+//
+// A plain SQL `group by` can't do the "prefer part number, fall back to
+// description" branching cleanly — pull the raw rows (getDb().query against
+// `select oem_part_number, description from customer_inquiry_part`) and
+// reduce in JS.
+async function topRequestedParts(limit: number): Promise<{ label: string; count: number }[]> {
+  return [];
+}
+
+export async function getInquiryStats(): Promise<InquiryStats> {
+  const db = getDb();
+  const [statusCounts, recent, openParts, topParts] = await Promise.all([
+    db.query<{ status: string; n: string }>(
+      `select status, count(*)::int as n from customer_inquiry group by status`
+    ),
+    db.query<{ n: string }>(
+      `select count(*)::int as n from customer_inquiry where created_at >= now() - interval '7 days'`
+    ),
+    db.query<{ n: string }>(
+      `select count(*)::int as n
+         from customer_inquiry_part p
+         join customer_inquiry i on i.id = p.inquiry_id
+        where i.status = 'open'`
+    ),
+    topRequestedParts(10),
+  ]);
+
+  let openCount = 0;
+  let closedCount = 0;
+  let totalCount = 0;
+  for (const row of statusCounts.rows) {
+    const n = Number(row.n);
+    totalCount += n;
+    if (row.status === "open") openCount = n;
+    else if (row.status === "closed") closedCount = n;
+  }
+
+  return {
+    openCount,
+    closedCount,
+    totalCount,
+    loggedLast7Days: Number(recent.rows[0]?.n ?? 0),
+    openPartsCount: Number(openParts.rows[0]?.n ?? 0),
+    topParts,
+  };
+}

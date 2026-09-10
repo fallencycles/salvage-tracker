@@ -36,7 +36,6 @@ type PartLine = {
   id: number | null;
   oem_part_number: string;
   description: string;
-  qty: string;
   notes: string;
   source: "manual" | "catalog";
   catalog_part_no: string | null;
@@ -48,13 +47,21 @@ const blankLine = (): PartLine => ({
   id: null,
   oem_part_number: "",
   description: "",
-  qty: "",
   notes: "",
   source: "manual",
   catalog_part_no: null,
 });
 
 const isEmptyLine = (l: PartLine) => !l.oem_part_number.trim() && !l.description.trim();
+
+// The model field stores what ModelPicker produced: "Road King — FLHR" when a
+// catalog model was picked, or whatever the user free-typed. The catalog search
+// needs the bare model_code ("FLHR") to scope results, and exact-matches it.
+// Returns "" for a free-typed value that has no " — " separator to trust.
+function parseModelCode(model: string): string {
+  const parts = model.split(" — ");
+  return parts.length > 1 ? parts[parts.length - 1].trim() : "";
+}
 
 // Format a phone number as it's typed so every row in the CSV looks the same.
 // Called on every keystroke: `raw` is the full current field value (already
@@ -94,7 +101,6 @@ export type InitialInquiry = {
     id: number;
     oem_part_number: string | null;
     description: string | null;
-    qty: number | null;
     notes: string | null;
     source: string;
     catalog_part_no: string | null;
@@ -114,7 +120,6 @@ function linesFromInitial(initial: InitialInquiry): PartLine[] {
     id: p.id,
     oem_part_number: p.oem_part_number ?? "",
     description: p.description ?? "",
-    qty: p.qty == null ? "" : String(p.qty),
     notes: p.notes ?? "",
     source: p.source === "catalog" ? ("catalog" as const) : ("manual" as const),
     catalog_part_no: p.catalog_part_no,
@@ -145,6 +150,11 @@ export function InquiryForm({
   // Year + model are in state so the model picker can filter by the year.
   const [year, setYear] = useState(initial?.moto_year ?? "");
   const [model, setModel] = useState(initial?.moto_model ?? "");
+  // When a bike is entered, scope the catalog part search to parts that fit it.
+  const [scopeToBike, setScopeToBike] = useState(true);
+  const motoModelCode = useMemo(() => parseModelCode(model), [model]);
+  const hasBike = !!(year.trim() || motoModelCode);
+  const scoping = scopeToBike && hasBike;
 
   const years = useMemo(() => {
     const now = new Date().getFullYear();
@@ -200,7 +210,6 @@ export function InquiryForm({
         id: l.id,
         oem_part_number: l.oem_part_number,
         description: l.description,
-        qty: l.qty === "" ? null : Number(l.qty),
         notes: l.notes,
         source: l.source,
         catalog_part_no: l.catalog_part_no,
@@ -343,13 +352,41 @@ export function InquiryForm({
           </button>
         </div>
 
-        <CatalogPartSearch onAdd={addFromCatalog} />
+        {hasBike && (
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 12,
+              color: "var(--ink-dim)",
+              marginBottom: 8,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={scopeToBike}
+              onChange={(e) => setScopeToBike(e.target.checked)}
+            />
+            Only parts that fit this bike
+            {scoping && (
+              <span style={{ color: "var(--ink)" }}>
+                ({[year.trim(), motoModelCode].filter(Boolean).join(" · ")})
+              </span>
+            )}
+          </label>
+        )}
+
+        <CatalogPartSearch
+          onAdd={addFromCatalog}
+          year={scoping ? year.trim() : ""}
+          modelCode={scoping ? motoModelCode : ""}
+        />
 
         <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
           <div style={partGrid}>
             <span style={miniHead}>OEM part #</span>
             <span style={miniHead}>Description</span>
-            <span style={miniHead}>Qty</span>
             <span style={miniHead}>Notes</span>
             <span />
           </div>
@@ -375,12 +412,6 @@ export function InquiryForm({
                 onChange={(e) => setLine(l.key, { description: e.target.value })}
                 style={input}
                 placeholder="what the part is"
-              />
-              <input
-                value={l.qty}
-                onChange={(e) => setLine(l.key, { qty: e.target.value.replace(/[^\d]/g, "") })}
-                style={{ ...input, textAlign: "center" }}
-                inputMode="numeric"
               />
               <input
                 value={l.notes}
@@ -419,7 +450,15 @@ export function InquiryForm({
 }
 
 // --- inline catalog search: type a part # or name, click a hit to add it ---
-function CatalogPartSearch({ onAdd }: { onAdd: (hit: CatalogHit) => void }) {
+function CatalogPartSearch({
+  onAdd,
+  year = "",
+  modelCode = "",
+}: {
+  onAdd: (hit: CatalogHit) => void;
+  year?: string;
+  modelCode?: string;
+}) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<CatalogHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -435,9 +474,10 @@ function CatalogPartSearch({ onAdd }: { onAdd: (hit: CatalogHit) => void }) {
     const t = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/catalog/search?q=${encodeURIComponent(term)}`, {
-          signal: ctrl.signal,
-        });
+        const params = new URLSearchParams({ q: term });
+        if (year) params.set("year", year);
+        if (modelCode) params.set("model", modelCode);
+        const res = await fetch(`/api/catalog/search?${params}`, { signal: ctrl.signal });
         const data = await res.json();
         setHits((data.results ?? []).slice(0, 8));
         setOpen(true);
@@ -451,7 +491,7 @@ function CatalogPartSearch({ onAdd }: { onAdd: (hit: CatalogHit) => void }) {
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [q]);
+  }, [q, year, modelCode]);
 
   return (
     <div style={{ position: "relative" }}>
@@ -501,7 +541,7 @@ function CatalogPartSearch({ onAdd }: { onAdd: (hit: CatalogHit) => void }) {
 
 const partGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "160px 1fr 64px 1fr 28px",
+  gridTemplateColumns: "160px 1fr 1fr 28px",
   gap: 8,
   alignItems: "center",
 };

@@ -29,7 +29,6 @@ export default async function EditInquiryPage({ params }: { params: Promise<{ id
       id: p.id,
       oem_part_number: p.oem_part_number,
       description: p.description,
-      qty: p.qty,
       notes: p.notes,
       source: p.source,
       catalog_part_no: p.catalog_part_no,
@@ -39,7 +38,7 @@ export default async function EditInquiryPage({ params }: { params: Promise<{ id
   return (
     <div>
       <Link href="/inquiries" style={{ fontSize: 13, color: "var(--ink-dim)", textDecoration: "none" }}>
-        ← All inquiries
+        ← Dashboard
       </Link>
       <h1 style={{ fontSize: 22, margin: "8px 0 2px" }}>
         Edit inquiry #{inquiry.id}
