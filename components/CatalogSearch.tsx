@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type FitmentRange = {
+export type FitmentRange = {
   model_code: string;
   model_family: string | null;
   model_name: string | null;
@@ -10,7 +10,7 @@ type FitmentRange = {
   year_end: number;
 };
 
-type CatalogOccurrence = {
+export type CatalogOccurrence = {
   component: string | null;
   description: string | null;
   page: number | null;
@@ -22,7 +22,7 @@ type CatalogOccurrence = {
   diagram_page: number | null;
 };
 
-type CatalogResult = {
+export type CatalogResult = {
   part_no: string;
   part_no_normalized: string;
   description: string | null;
@@ -76,6 +76,43 @@ function catalogSlug(source: string | null): string {
 function catalogLabel(source: string | null): string {
   if (!source) return "";
   return catalogSlug(source).replace(/^softail_/, "Softail ").replace(/^touring$/, "Touring");
+}
+
+// A small label burned into the corner of every diagram render — which
+// catalog + page the image came from. These are scanned pages with nothing
+// in the pixels themselves to say so; this overlay (not the source file) is
+// what carries that provenance wherever the image is shown.
+function DiagramWatermark({
+  source,
+  page,
+  large,
+}: {
+  source: string | null;
+  page: number | null;
+  large?: boolean;
+}) {
+  const text = [catalogLabel(source), page != null ? `p.${page}` : null].filter(Boolean).join(" · ");
+  if (!text) return null;
+  return (
+    <span
+      style={{
+        position: "absolute",
+        bottom: large ? 10 : 4,
+        right: large ? 12 : 6,
+        fontFamily: "var(--font-mono)",
+        fontSize: large ? 12.5 : 10,
+        letterSpacing: "0.03em",
+        color: "rgba(255,255,255,0.92)",
+        background: "rgba(0,0,0,0.6)",
+        padding: large ? "3px 8px" : "2px 6px",
+        borderRadius: 3,
+        pointerEvents: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {text}
+    </span>
+  );
 }
 
 type DiagramRef = {
@@ -947,7 +984,7 @@ function FitsAccordion({ fitment }: { fitment: FitmentRange[] }) {
   );
 }
 
-function PartModal({
+export function PartModal({
   result,
   onClose,
   onBack,
@@ -1141,6 +1178,7 @@ function PartModal({
                           )}
                         </div>
                       )}
+                      <DiagramWatermark source={d.source} page={d.page} />
                     </div>
                     <figcaption
                       style={{
@@ -1207,16 +1245,19 @@ function PartModal({
           </div>
 
           <div className="cat-zoom-body">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              className="cat-zoom-img"
-              src={zoom.url}
-              alt={zoom.component ?? ""}
-              onClick={() => setZoom(null)}
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
-              }}
-            />
+            <div className="cat-zoom-img-wrap">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                className="cat-zoom-img"
+                src={zoom.url}
+                alt={zoom.component ?? ""}
+                onClick={() => setZoom(null)}
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                }}
+              />
+              <DiagramWatermark source={zoom.source} page={zoom.page} large />
+            </div>
 
             <div className="cat-zoom-panel" onClick={(e) => e.stopPropagation()}>
               <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>

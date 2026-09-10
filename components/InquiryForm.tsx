@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ModelPicker, type CatalogModelOption } from "@/components/ModelPicker";
+import { PartModal, type CatalogResult } from "@/components/CatalogSearch";
 
 const input: React.CSSProperties = {
   background: "var(--panel-raised)",
@@ -112,6 +113,7 @@ type CatalogHit = {
   part_no_normalized: string;
   description: string | null;
   component: string | null;
+  has_diagram: boolean;
 };
 
 function linesFromInitial(initial: InitialInquiry): PartLine[] {
@@ -463,6 +465,18 @@ function CatalogPartSearch({
   const [hits, setHits] = useState<CatalogHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [viewing, setViewing] = useState<CatalogResult | null>(null);
+  const [viewLoading, setViewLoading] = useState(false);
+
+  async function openDiagram(partNo: string) {
+    setViewLoading(true);
+    try {
+      const res = await fetch(`/api/catalog/part?no=${encodeURIComponent(partNo)}`);
+      if (res.ok) setViewing((await res.json()) as CatalogResult);
+    } finally {
+      setViewLoading(false);
+    }
+  }
 
   useEffect(() => {
     const term = q.trim();
@@ -510,10 +524,18 @@ function CatalogPartSearch({
       {open && hits.length > 0 && (
         <div style={hitBox}>
           {hits.map((h) => (
-            <button
+            <div
               key={h.part_no_normalized}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => {
+                onAdd(h);
+                setQ("");
+                setHits([]);
+                setOpen(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
                 onAdd(h);
                 setQ("");
                 setHits([]);
@@ -530,9 +552,42 @@ function CatalogPartSearch({
               {h.component && (
                 <span style={{ color: "var(--ink-dim)", fontSize: 11, flexShrink: 0 }}>{h.component}</span>
               )}
+              {h.has_diagram && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openDiagram(h.part_no);
+                  }}
+                  title="View parts-page diagram"
+                  style={diagramBtn}
+                >
+                  ▦
+                </button>
+              )}
               <span style={{ color: "var(--tag-blue)", flexShrink: 0 }}>+ add</span>
-            </button>
+            </div>
           ))}
+        </div>
+      )}
+
+      {viewing && (
+        <PartModal
+          result={viewing}
+          canBack={false}
+          onBack={() => {}}
+          onOpenPart={(pn) => openDiagram(pn)}
+          onClose={() => setViewing(null)}
+        />
+      )}
+      {viewLoading && !viewing && (
+        <div className="cat-modal-scrim">
+          <div
+            className="cat-modal"
+            style={{ padding: 40, textAlign: "center", color: "var(--ink-dim)", fontSize: 14 }}
+          >
+            Loading diagram…
+          </div>
         </div>
       )}
     </div>
@@ -598,6 +653,17 @@ const hitBox: React.CSSProperties = {
   borderRadius: 6,
   boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
   overflow: "hidden",
+};
+const diagramBtn: React.CSSProperties = {
+  background: "none",
+  border: "1px solid var(--border)",
+  borderRadius: 4,
+  color: "var(--ink-dim)",
+  fontSize: 13,
+  lineHeight: 1,
+  padding: "3px 6px",
+  cursor: "pointer",
+  flexShrink: 0,
 };
 const hitRow: React.CSSProperties = {
   display: "flex",
