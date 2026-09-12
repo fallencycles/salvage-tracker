@@ -20,6 +20,7 @@ export const dynamic = "force-dynamic";
 const NAV = [
   { href: "/catalog", label: "Parts Catalog" },
   { href: "/inquiries", label: "Customer Inquiries" },
+  { href: "/engine-sales", label: "Engine Sales (draft)" },
 ];
 
 async function gatePassed(): Promise<boolean> {
